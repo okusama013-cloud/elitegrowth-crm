@@ -1,8 +1,5 @@
 {
   "name": "elitegrowth-crm",
   "version": "1.0.0",
-  "description": "LinkedIn Prospect Intelligence CRM",
-  "dependencies": {
-    "node-fetch": "^2.6.7"
-  }
+  "description": "LinkedIn Prospect Intelligence CRM"
 }
