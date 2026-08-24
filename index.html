@@ -354,7 +354,7 @@
             settings: {
                 apiKey: '',
                 textModel: 'openai/gpt-oss-120b',
-                visionModel: 'qwen/qwen3.6-27b',
+                visionModel: 'llama-3.2-90b-vision-preview',
                 researchModel: 'groq/compound',
                 liveResearch: false,
                 icp: {
@@ -388,9 +388,14 @@
     function formatDate(iso) { if (!iso) return '—'; return new Date(iso).toLocaleDateString(); }
     function formatDateShort(iso) { if (!iso) return '—'; return new Date(iso).toLocaleDateString(undefined, { month: 'short', day: 'numeric' }); }
     function escapeHtml(str) { if (!str) return ''; return String(str).replace(/[&<>"']/g, function(m) { const map = {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}; return map[m]; }); }
-    function maskApiKey(key) { if (!key) return ''; if (key.length <= 8) return '****'; return key.substring(0, 4) + '************' + key.substring(key.length - 4); }
-    function debounce(fn, ms) { let timer; return function(...args) { clearTimeout(timer); timer = setTimeout(() => fn(...args), ms); }; }
-    const saveStateDebounced = debounce(() => saveState(), 300);
+    function toast(message, type = 'info') {
+        const container = document.getElementById('toastContainer');
+        const el = document.createElement('div');
+        el.className = `toast ${type}`;
+        el.textContent = message;
+        container.appendChild(el);
+        setTimeout(() => el.remove(), 4000);
+    }
 
     function saveState() {
         try { localStorage.setItem('elitegrowthhub_state', JSON.stringify(appState)); } catch(e) { toast('Storage error: ' + e.message, 'error'); }
@@ -417,15 +422,6 @@
             }
         } catch(e) { console.error('State load failed', e); }
         return defaultState();
-    }
-
-    function toast(message, type = 'info') {
-        const container = document.getElementById('toastContainer');
-        const el = document.createElement('div');
-        el.className = `toast ${type}`;
-        el.textContent = message;
-        container.appendChild(el);
-        setTimeout(() => el.remove(), 4000);
     }
 
     function updateApiStatus() {
@@ -486,12 +482,6 @@
         const connected = p.filter(x => ['CONNECTED','MESSAGE SENT','REPLIED','INTERESTED','AUDIT OFFERED','AUDIT ACCEPTED','AUDIT DELIVERED','CALL BOOKED','PROPOSAL SENT','WON'].includes(x.stage)).length;
         const replied = p.filter(x => ['REPLIED','INTERESTED','AUDIT OFFERED','AUDIT ACCEPTED','AUDIT DELIVERED','CALL BOOKED','PROPOSAL SENT','WON'].includes(x.stage)).length;
         const won = p.filter(x => x.stage === 'WON').length;
-        const audits = p.filter(x => ['AUDIT OFFERED','AUDIT ACCEPTED','AUDIT DELIVERED'].includes(x.stage)).length;
-        const calls = p.filter(x => ['CALL BOOKED','PROPOSAL SENT'].includes(x.stage)).length;
-        const proposals = p.filter(x => x.stage === 'PROPOSAL SENT').length;
-        const nurture = p.filter(x => x.stage === 'NURTURE').length;
-        const dnc = p.filter(x => x.stage === 'DO NOT CONTACT').length;
-
         const recent = appState.activities.slice(-10).reverse();
 
         container.innerHTML = `
@@ -504,11 +494,6 @@
                 <div class="metric-card"><div class="value">${connected}</div><div class="label">Connected</div></div>
                 <div class="metric-card"><div class="value">${replied}</div><div class="label">Replied</div></div>
                 <div class="metric-card"><div class="value">${won}</div><div class="label">Won</div></div>
-                <div class="metric-card"><div class="value">${audits}</div><div class="label">Audits</div></div>
-                <div class="metric-card"><div class="value">${calls}</div><div class="label">Calls</div></div>
-                <div class="metric-card"><div class="value">${proposals}</div><div class="label">Proposals</div></div>
-                <div class="metric-card"><div class="value">${nurture}</div><div class="label">Nurture</div></div>
-                <div class="metric-card"><div class="value">${dnc}</div><div class="label">Do Not Contact</div></div>
             </div>
             <div class="card">
                 <h3>Recent Activity</h3>
@@ -528,8 +513,6 @@
             if (prospectsSort === 'icp') return (b.icpScore || 0) - (a.icpScore || 0);
             if (prospectsSort === 'dm') return (b.decisionMakerScore || 0) - (a.decisionMakerScore || 0);
             if (prospectsSort === 'priority') return (a.priority || '').localeCompare(b.priority || '');
-            if (prospectsSort === 'lastTouch') return new Date(b.lastTouchDate || 0) - new Date(a.lastTouchDate || 0);
-            if (prospectsSort === 'nextAction') return (a.nextActionDate || '').localeCompare(b.nextActionDate || '');
             if (prospectsSort === 'stage') return (a.stage || '').localeCompare(b.stage || '');
             return new Date(b.createdAt) - new Date(a.createdAt);
         });
@@ -537,14 +520,14 @@
         container.innerHTML = `
             <div class="flex-between mb-10">
                 <div class="flex" style="flex-wrap:wrap;gap:6px;">
-                    <input type="text" placeholder="Search name, company, role, URL, website, industry, list, tags, status..." style="width:280px" id="prospectSearch" value="${escapeHtml(prospectsFilters.search)}" oninput="updateProspectFilters()">
+                    <input type="text" placeholder="Search..." style="width:280px" id="prospectSearch" value="${escapeHtml(prospectsFilters.search)}" oninput="updateProspectFilters()">
                     <select id="prospectIcpFilter" onchange="updateProspectFilters()"><option value="">All ICP</option><option value="high">High (80+)</option><option value="medium">Medium (50-79)</option><option value="low">Low (<50)</option></select>
                     <select id="prospectDmFilter" onchange="updateProspectFilters()"><option value="">All DM</option><option value="high">High (80+)</option><option value="medium">Medium (50-79)</option><option value="low">Low (<50)</option></select>
                     <select id="prospectPriorityFilter" onchange="updateProspectFilters()"><option value="">All Priority</option><option value="HIGH">High</option><option value="MEDIUM">Medium</option><option value="LOW">Low</option></select>
                     <select id="prospectStageFilter" onchange="updateProspectFilters()"><option value="">All Stages</option>${STAGES.map(s => `<option value="${s}">${s}</option>`).join('')}</select>
                     <select id="prospectListFilter" onchange="updateProspectFilters()"><option value="">All Lists</option>${appState.lists.map(l => `<option value="${l.id}">${escapeHtml(l.name)}</option>`).join('')}</select>
                     <select id="prospectSort" onchange="updateProspectSort()">
-                        <option value="createdAt">Date Added</option><option value="name">Name</option><option value="company">Company</option><option value="icp">ICP Score</option><option value="dm">Decision Maker</option><option value="priority">Priority</option><option value="stage">Stage</option><option value="lastTouch">Last Touch</option><option value="nextAction">Next Action</option>
+                        <option value="createdAt">Date Added</option><option value="name">Name</option><option value="company">Company</option><option value="icp">ICP Score</option><option value="dm">Decision Maker</option><option value="priority">Priority</option><option value="stage">Stage</option>
                     </select>
                 </div>
                 <button class="btn gold" onclick="openAddProspectModal()">+ Add Prospect</button>
@@ -552,21 +535,17 @@
             <div class="card">
                 <div class="table-wrap">
                     <table>
-                        <thead><tr><th>Name</th><th>Company</th><th>Role</th><th>ICP</th><th>DM</th><th>Priority</th><th>List</th><th>Stage</th><th>Last Touch</th><th>Next Action</th><th>Actions</th></tr></thead>
+                        <thead><tr><th>Name</th><th>Company</th><th>Role</th><th>ICP</th><th>DM</th><th>Priority</th><th>Stage</th><th>Actions</th></tr></thead>
                         <tbody>
-                            ${sorted.length ? sorted.map(p => {
-                                const listNames = (p.listIds || []).map(id => appState.lists.find(l => l.id === id)?.name || '').filter(Boolean).join(', ');
-                                return `<tr>
-                                    <td><a href="#" onclick="viewProspect('${p.id}'); event.preventDefault();">${escapeHtml(p.fullName || p.firstName + ' ' + (p.lastName||''))}</a></td>
+                            ${sorted.length ? sorted.map(p => `
+                                <tr>
+                                    <td><a href="#" onclick="viewProspect('${p.id}'); event.preventDefault();">${escapeHtml(p.fullName || p.firstName)}</a></td>
                                     <td>${escapeHtml(p.companyName || '—')}</td>
                                     <td>${escapeHtml(p.jobTitle || '—')}</td>
                                     <td><span class="score-bar"><span style="width:${p.icpScore||0}%"></span></span> ${p.icpScore||0}</td>
                                     <td>${p.decisionMakerScore||0}</td>
-                                    <td><span class="badge ${p.priority === 'HIGH' ? 'high' : p.priority === 'MEDIUM' ? 'medium' : p.priority === 'LOW' ? 'low' : ''}">${escapeHtml(p.priority||'—')}</span></td>
-                                    <td>${escapeHtml(listNames || '—')}</td>
+                                    <td><span class="badge ${p.priority === 'HIGH' ? 'high' : p.priority === 'MEDIUM' ? 'medium' : 'low'}">${escapeHtml(p.priority||'LOW')}</span></td>
                                     <td>${escapeHtml(p.stage||'NEW')}</td>
-                                    <td>${formatDateShort(p.lastTouchDate)}</td>
-                                    <td>${escapeHtml(p.nextAction || '—')} ${p.nextActionDate ? formatDateShort(p.nextActionDate) : ''}</td>
                                     <td class="flex" style="gap:4px;">
                                         <button class="btn small" onclick="viewProspect('${p.id}')">View</button>
                                         <button class="btn small" onclick="editProspect('${p.id}')">Edit</button>
@@ -574,8 +553,8 @@
                                         <button class="btn small" onclick="generateMessageForProspect('${p.id}')">Message</button>
                                         <button class="btn small danger" onclick="deleteProspect('${p.id}')">Delete</button>
                                     </td>
-                                </tr>`;
-                            }).join('') : '<tr><td colspan="11" class="empty-state">No prospects yet. Add your first LinkedIn prospect to begin.</td></tr>'}
+                                </tr>
+                            `).join('') : '<tr><td colspan="8" class="empty-state">No prospects yet. Add your first LinkedIn prospect to begin.</td></tr>'}
                         </tbody>
                     </table>
                 </div>
@@ -650,44 +629,20 @@
             </div>
             <form id="addProspectForm" onsubmit="event.preventDefault();">
                 <div class="form-row">
-                    <div>
-                        <label>First Name *</label>
-                        <input type="text" id="pFirstName" placeholder="Enter first name" required>
-                    </div>
-                    <div>
-                        <label>Last Name</label>
-                        <input type="text" id="pLastName" placeholder="Enter last name">
-                    </div>
+                    <div><label>First Name *</label><input type="text" id="pFirstName" placeholder="Enter first name" required></div>
+                    <div><label>Last Name</label><input type="text" id="pLastName" placeholder="Enter last name"></div>
                 </div>
                 <div class="form-row">
-                    <div>
-                        <label>Company Name</label>
-                        <input type="text" id="pCompanyName" placeholder="Enter company name">
-                    </div>
-                    <div>
-                        <label>Job Title</label>
-                        <input type="text" id="pJobTitle" placeholder="Enter job title">
-                    </div>
+                    <div><label>Company Name</label><input type="text" id="pCompanyName" placeholder="Enter company name"></div>
+                    <div><label>Job Title</label><input type="text" id="pJobTitle" placeholder="Enter job title"></div>
                 </div>
                 <div class="form-row">
-                    <div>
-                        <label>LinkedIn URL</label>
-                        <input type="url" id="pLinkedinUrl" placeholder="https://www.linkedin.com/in/...">
-                    </div>
-                    <div>
-                        <label>Email</label>
-                        <input type="email" id="pEmail" placeholder="email@example.com">
-                    </div>
+                    <div><label>LinkedIn URL</label><input type="url" id="pLinkedinUrl" placeholder="https://www.linkedin.com/in/..."></div>
+                    <div><label>Email</label><input type="email" id="pEmail" placeholder="email@example.com"></div>
                 </div>
                 <div class="form-row">
-                    <div>
-                        <label>Website</label>
-                        <input type="url" id="pWebsite" placeholder="https://company.com">
-                    </div>
-                    <div>
-                        <label>Industry</label>
-                        <input type="text" id="pIndustry" placeholder="e.g., Marketing, Technology">
-                    </div>
+                    <div><label>Website</label><input type="url" id="pWebsite" placeholder="https://company.com"></div>
+                    <div><label>Industry</label><input type="text" id="pIndustry" placeholder="e.g., Marketing, Technology"></div>
                 </div>
 
                 <div class="form-row single">
@@ -821,7 +776,6 @@
 
             scrapedData = data;
             
-            // Fill form fields with scraped data
             if (data.fullName) {
                 const parts = data.fullName.split(' ');
                 document.getElementById('pFirstName').value = parts[0] || '';
@@ -831,7 +785,6 @@
             if (data.jobTitle) document.getElementById('pJobTitle').value = data.jobTitle;
             if (data.industry) document.getElementById('pIndustry').value = data.industry;
 
-            // Show preview
             const previewEl = document.getElementById('scrapedDataPreview');
             previewEl.style.display = 'block';
             previewEl.innerHTML = `
@@ -842,20 +795,13 @@
                         <div><label>Job Title</label><input type="text" value="${escapeHtml(data.jobTitle || '')}" disabled></div>
                         <div><label>Company</label><input type="text" value="${escapeHtml(data.company || '')}" disabled></div>
                     </div>
-                    <div class="form-row">
-                        <div><label>Location</label><input type="text" value="${escapeHtml(data.location || '')}" disabled></div>
-                        <div><label>Industry</label><input type="text" value="${escapeHtml(data.industry || '')}" disabled></div>
-                    </div>
                 </div>
             `;
 
             statusEl.className = 'linkedin-scrape-status success';
             statusEl.innerHTML = '✅ Profile data extracted successfully! Review and save.';
-            
-            // Enable save button
             const saveBtn = document.getElementById('saveProspectBtn');
             saveBtn.disabled = false;
-            
             toast('LinkedIn profile scraped successfully!', 'success');
 
         } catch(e) {
@@ -899,9 +845,6 @@
             updatedAt: todayISO(),
             icpScore: 0,
             decisionMakerScore: 0,
-            relevanceScore: 0,
-            confidenceScore: 0,
-            riskLevel: 'Unknown',
             priority: 'LOW',
             shouldContact: true,
             location: '',
@@ -966,7 +909,6 @@
         const btn = document.getElementById('analyzeFromModalBtn');
         if (btn) btn.disabled = true;
 
-        // Show progress modal
         const overlayHtml = `<div class="modal-overlay"><div class="modal"><div class="modal-header"><h2>🔬 Analyzing Prospect</h2><button class="close-btn" onclick="closeModal()">×</button></div><div class="progress-steps" id="analysisSteps"></div><div id="analysisLog" class="text-sm"></div></div></div>`;
         document.getElementById('modalContainer').innerHTML = overlayHtml;
         
@@ -994,9 +936,6 @@
                 email: document.getElementById('pEmail')?.value.trim() || '',
                 website: document.getElementById('pWebsite')?.value.trim() || '',
                 industry: document.getElementById('pIndustry')?.value.trim() || '',
-                location: '',
-                about: '',
-                skills: [],
                 screenshots: addProspectScreenshots,
             };
 
@@ -1069,6 +1008,9 @@
     // ==================== GROQ API CALLS ====================
     async function callGroqChat(system, user, model, opts = {}) {
         if (!appState.settings.apiKey) throw new Error('API key not configured');
+        const key = appState.settings.apiKey.trim();
+        if (!key.startsWith('gsk_')) throw new Error('Invalid API key format. Must start with gsk_');
+        
         appState.apiUsage.requests++;
         appState.apiUsage.lastRequest = todayISO();
         appState.apiUsage.currentModel = model;
@@ -1080,45 +1022,41 @@
             max_tokens: opts.max_tokens ?? 2000,
             ...(opts.response_format ? { response_format: opts.response_format } : {})
         };
+        
         let retries = 0;
         while (retries <= 2) {
             try {
                 const res = await fetch(url, {
                     method: 'POST',
-                    headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + appState.settings.apiKey },
+                    headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + key },
                     body: JSON.stringify(body)
                 });
                 if (!res.ok) {
                     const errorText = await res.text();
                     appState.apiUsage.failed++;
-                    appState.apiUsage.lastError = `HTTP ${res.status}: ${errorText}`;
+                    appState.apiUsage.lastError = `HTTP ${res.status}`;
+                    if (res.status === 401) throw new Error('Invalid API key. Please check your Groq API key in Settings.');
                     if (res.status === 429) {
                         appState.apiUsage.rateLimited++;
-                        const retryAfter = res.headers.get('retry-after');
-                        const wait = retryAfter ? parseInt(retryAfter) * 1000 : 2000 * (retries + 1);
+                        const wait = 2000 * (retries + 1);
                         if (retries < 2) {
                             await new Promise(r => setTimeout(r, wait));
                             retries++;
                             continue;
                         }
-                        throw new Error('Groq rate limit reached. Please wait and try again.');
+                        throw new Error('Rate limit reached. Please wait.');
                     }
-                    if (res.status === 401) throw new Error('Invalid API key (401). Check settings.');
-                    if (res.status === 403) throw new Error('Access denied (403).');
-                    if (res.status === 404) throw new Error('Model or endpoint not found (404).');
-                    if (res.status === 408) throw new Error('Request timed out (408).');
-                    if (res.status === 500 || res.status === 502 || res.status === 503) throw new Error(`Groq server error (${res.status}).`);
-                    throw new Error('Groq API error: ' + res.status);
+                    throw new Error(`API error: ${res.status} - ${errorText.substring(0, 100)}`);
                 }
                 const data = await res.json();
                 const content = data.choices?.[0]?.message?.content || '';
-                if (!content) { appState.apiUsage.failed++; appState.apiUsage.lastError = 'Empty response'; throw new Error('Empty response from Groq'); }
+                if (!content) { appState.apiUsage.failed++; throw new Error('Empty response from Groq'); }
                 appState.apiUsage.successful++;
                 appState.apiUsage.lastError = null;
-                saveStateDebounced();
+                saveState();
                 return content;
             } catch(e) {
-                if (retries >= 2) { saveStateDebounced(); throw e; }
+                if (retries >= 2) { saveState(); throw e; }
                 retries++;
                 await new Promise(r => setTimeout(r, 1000 * retries));
             }
@@ -1127,6 +1065,9 @@
 
     async function callGroqResponses(text, images) {
         if (!appState.settings.apiKey) throw new Error('API key not configured');
+        const key = appState.settings.apiKey.trim();
+        if (!key.startsWith('gsk_')) throw new Error('Invalid API key format. Must start with gsk_');
+        
         appState.apiUsage.requests++;
         appState.apiUsage.lastRequest = todayISO();
         appState.apiUsage.currentModel = appState.settings.visionModel;
@@ -1137,35 +1078,45 @@
             model: appState.settings.visionModel,
             input: [{ role: 'user', content }]
         };
+        
         let retries = 0;
         while (retries <= 2) {
             try {
                 const res = await fetch(url, {
                     method: 'POST',
-                    headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + appState.settings.apiKey },
+                    headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + key },
                     body: JSON.stringify(body)
                 });
                 if (!res.ok) {
                     const errorText = await res.text();
                     appState.apiUsage.failed++;
                     appState.apiUsage.lastError = `Vision HTTP ${res.status}`;
+                    if (res.status === 401) throw new Error('Invalid API key for Vision. Please check your Groq API key.');
                     if (res.status === 429) {
                         appState.apiUsage.rateLimited++;
-                        const retryAfter = res.headers.get('retry-after');
-                        const wait = retryAfter ? parseInt(retryAfter) * 1000 : 2000 * (retries + 1);
-                        if (retries < 2) { await new Promise(r => setTimeout(r, wait)); retries++; continue; }
-                        throw new Error('Groq rate limit reached.');
+                        const wait = 2000 * (retries + 1);
+                        if (retries < 2) {
+                            await new Promise(r => setTimeout(r, wait));
+                            retries++;
+                            continue;
+                        }
+                        throw new Error('Rate limit reached.');
                     }
-                    throw new Error('Vision API error: ' + res.status);
+                    if (res.status === 404) throw new Error('Vision model not found. Try: llama-3.2-90b-vision-preview');
+                    throw new Error(`Vision API error: ${res.status}`);
                 }
                 const data = await res.json();
                 const textResult = data.output_text || data.output?.[0]?.content?.[0]?.text || '';
-                if (!textResult) { appState.apiUsage.failed++; appState.apiUsage.lastError = 'Empty vision response'; throw new Error('Empty vision response'); }
+                if (!textResult) { appState.apiUsage.failed++; throw new Error('Empty vision response'); }
                 appState.apiUsage.successful++;
                 appState.apiUsage.lastError = null;
-                saveStateDebounced();
+                saveState();
                 return textResult;
-            } catch(e) { if (retries >= 2) { saveStateDebounced(); throw e; } retries++; await new Promise(r => setTimeout(r, 1000 * retries)); }
+            } catch(e) {
+                if (retries >= 2) { saveState(); throw e; }
+                retries++;
+                await new Promise(r => setTimeout(r, 1000 * retries));
+            }
         }
     }
 
@@ -1174,17 +1125,17 @@
         appState.apiUsage.requests++;
         appState.apiUsage.lastRequest = todayISO();
         appState.apiUsage.currentModel = appState.settings.researchModel;
-        const system = 'You are a public company research assistant. You do NOT have live web access. Only provide information explicitly provided by user or known public facts. If unsure, say "Not verified." Never fabricate. Return JSON with fields: summary, businessModel, painSignals, opportunitySignals, sources (array of {title,url,type}), lastResearched.';
+        const system = 'You are a public company research assistant. Return JSON with fields: summary, businessModel, painSignals, opportunitySignals, sources (array of {title,url,type}), lastResearched.';
         const url = 'https://api.groq.com/openai/v1/chat/completions';
         const body = { model: appState.settings.researchModel, messages: [{ role: 'system', content: system }, { role: 'user', content: 'Research this company: ' + query }], temperature: 0.2, max_tokens: 2000, response_format: { type: 'json_object' } };
         try {
-            const res = await fetch(url, { method: 'POST', headers: { 'Content-Type':'application/json','Authorization':'Bearer '+appState.settings.apiKey }, body: JSON.stringify(body) });
-            if (!res.ok) { appState.apiUsage.failed++; appState.apiUsage.lastError = `Research HTTP ${res.status}`; if (res.status===429) throw new Error('Rate limit'); throw new Error('Research failed: '+res.status); }
+            const res = await fetch(url, { method: 'POST', headers: { 'Content-Type':'application/json','Authorization':'Bearer '+appState.settings.apiKey.trim() }, body: JSON.stringify(body) });
+            if (!res.ok) { appState.apiUsage.failed++; throw new Error('Research failed: '+res.status); }
             const data = await res.json();
             const content = data.choices?.[0]?.message?.content || '';
-            appState.apiUsage.successful++; saveStateDebounced();
+            appState.apiUsage.successful++; saveState();
             return parseAIResponse(content);
-        } catch(e) { appState.apiUsage.failed++; saveStateDebounced(); throw e; }
+        } catch(e) { appState.apiUsage.failed++; saveState(); throw e; }
     }
 
     function parseAIResponse(content) {
@@ -1292,13 +1243,13 @@
     function deleteProspect(id) {
         const p = appState.prospects.find(x => x.id === id);
         if (!p) return;
-        if (!confirm('Delete this prospect? It will be moved to trash.')) return;
+        if (!confirm('Delete this prospect?')) return;
         appState.trash.push({ type: 'prospect', data: p, deletedAt: todayISO() });
         appState.prospects = appState.prospects.filter(x => x.id !== id);
-        addActivity('Prospect Deleted (Trashed): ' + (p.fullName || p.firstName), id);
+        addActivity('Prospect Deleted: ' + (p.fullName || p.firstName), id);
         saveState();
         renderView(currentView);
-        toast('Prospect moved to trash');
+        toast('Prospect deleted');
     }
 
     function restoreTrashItem(index) {
@@ -1316,7 +1267,7 @@
 
     function addActivity(text, prospectId = null) {
         appState.activities.push({ id: createId(), text, prospectId, createdAt: todayISO() });
-        saveStateDebounced();
+        saveState();
     }
 
     function detectDuplicate(data) {
@@ -1332,7 +1283,6 @@
                 const pCompany = p.companyName?.toLowerCase().trim();
                 if (pName === name && pCompany === company) return p;
             }
-            if (company && data.website && p.website && new URL(data.website).hostname.replace('www.','') === new URL(p.website).hostname.replace('www.','')) return p;
         }
         return null;
     }
@@ -1341,7 +1291,6 @@
         openModal(`
             <div class="modal-header"><h2>Possible Duplicate Found</h2><button class="close-btn" onclick="closeModal()">×</button></div>
             <p>Existing prospect: <strong>${escapeHtml(existing.fullName || existing.firstName)}</strong> at ${escapeHtml(existing.companyName || '—')}</p>
-            <p>Do you want to merge, keep both, or cancel?</p>
             <div class="flex mt-10">
                 <button class="btn primary" onclick="mergeProspect('${existing.id}', '${newData.id || ''}')">Merge</button>
                 <button class="btn" onclick="keepBothProspect('${existing.id}', '${newData.id || ''}')">Keep Both</button>
@@ -1372,7 +1321,6 @@
     function viewProspect(id) {
         const p = appState.prospects.find(x => x.id === id);
         if (!p) { toast('Prospect not found', 'error'); return; }
-        const listNames = (p.listIds || []).map(lid => appState.lists.find(l => l.id===lid)?.name || '').filter(Boolean).join(', ') || '—';
         openModal(`
             <div class="modal-header"><h2>${escapeHtml(p.fullName || p.firstName)}</h2><button class="close-btn" onclick="closeModal()">×</button></div>
             <div class="tabs">
@@ -1406,7 +1354,6 @@
     }
 
     function profileTabHtml(p) {
-        const listNames = (p.listIds || []).map(lid => appState.lists.find(l => l.id===lid)?.name || '').filter(Boolean).join(', ') || '—';
         return `
             <div class="form-row three">
                 <div><label>ICP Score</label><span class="score-bar"><span style="width:${p.icpScore||0}%"></span></span> ${p.icpScore||0}</div>
@@ -1416,19 +1363,9 @@
             <p><strong>Company:</strong> ${escapeHtml(p.companyName || '—')}</p>
             <p><strong>Role:</strong> ${escapeHtml(p.jobTitle || '—')}</p>
             <p><strong>Industry:</strong> ${escapeHtml(p.industry || '—')}</p>
-            <p><strong>Location:</strong> ${escapeHtml(p.location || '—')}</p>
-            <p><strong>Website:</strong> ${escapeHtml(p.companyWebsite || p.website || '—')}</p>
             <p><strong>LinkedIn:</strong> ${p.linkedinUrl ? `<a href="${escapeHtml(p.linkedinUrl)}" target="_blank">${escapeHtml(p.linkedinUrl)}</a>` : '—'}</p>
-            <p><strong>Lists:</strong> ${escapeHtml(listNames)}</p>
             <p><strong>Stage:</strong> ${escapeHtml(p.stage)}</p>
-            <p><strong>Next Action:</strong> ${escapeHtml(p.nextAction || '—')} ${p.nextActionDate ? formatDate(p.nextActionDate) : ''}</p>
-            <p><strong>Should Contact:</strong> ${p.shouldContact ? 'Yes' : 'No'}</p>
-            <p><strong>Risk Level:</strong> ${escapeHtml(p.riskLevel || '—')}</p>
-            ${p.recommendedService ? `<p><strong>Recommended Service:</strong> ${escapeHtml(p.recommendedService)}</p>` : ''}
-            ${p.outreachAngle ? `<p><strong>Outreach Angle:</strong> ${escapeHtml(p.outreachAngle)}</p>` : ''}
-            ${p.miniAudit ? `<p><strong>Mini Audit:</strong> ${escapeHtml(p.miniAudit)}</p>` : ''}
-            ${p.connectionRequest ? `<p><strong>Connection Request:</strong> ${escapeHtml(p.connectionRequest)}</p>` : ''}
-            ${p.initialMessage ? `<p><strong>Initial Message:</strong> ${escapeHtml(p.initialMessage)}</p>` : ''}
+            ${p.initialMessage ? `<p><strong>Message:</strong> ${escapeHtml(p.initialMessage)}</p>` : ''}
             <div class="flex mt-10">
                 <button class="btn primary" onclick="editProspect('${p.id}')">Edit</button>
                 <button class="btn gold" onclick="analyzeProspectById('${p.id}')">Analyze</button>
@@ -1447,32 +1384,26 @@
         return `
             <h3>Prospect Summary</h3><p>${escapeHtml(p.prospectSummary || '—')}</p>
             <h3>Company Summary</h3><p>${escapeHtml(p.companySummary || '—')}</p>
-            <h3>Business Model</h3><p>${escapeHtml(p.businessModel || p.businessModelSummary || '—')}</p>
-            <h3>About</h3><p>${escapeHtml(p.about || '—')}</p>
-            <h3>Skills</h3><p>${(Array.isArray(p.skills)?p.skills:[]).map(s=>escapeHtml(s)).join(', ') || '—'}</p>
-            <h3>Experience</h3><p>${(Array.isArray(p.experience)?p.experience:[]).map(s=>escapeHtml(s)).join('<br>') || '—'}</p>
+            <h3>Business Model</h3><p>${escapeHtml(p.businessModel || '—')}</p>
             <h3>Pain Signals</h3><p>${(Array.isArray(p.painSignals)?p.painSignals:[]).map(s=>escapeHtml(s)).join(', ') || '—'}</p>
             <h3>Opportunity Signals</h3><p>${(Array.isArray(p.opportunitySignals)?p.opportunitySignals:[]).map(s=>escapeHtml(s)).join(', ') || '—'}</p>
             <h3>Evidence</h3><ul>${evidence.map(e => `<li>[EVIDENCE] ${escapeHtml(e)}</li>`).join('') || '<li>None</li>'}</ul>
             <h3>Guesses</h3><ul>${guesses.map(e => `<li>[GUESS] ${escapeHtml(e)}</li>`).join('') || '<li>None</li>'}</ul>
             <h3>Not Verified</h3><ul>${notVerified.map(e => `<li>[NOT VERIFIED] ${escapeHtml(e)}</li>`).join('') || '<li>None</li>'}</ul>
-            <h3>Sources</h3>${sources.length ? `<ul class="sources-list">${sources.map(s => `<li>${s.title ? escapeHtml(s.title) : ''} ${s.url ? `<a href="${escapeHtml(s.url)}" target="_blank">${escapeHtml(s.url)}</a>` : ''} (${escapeHtml(s.sourceType||'')}) ${s.researchDate ? formatDate(s.researchDate) : ''}</li>`).join('')}</ul>` : '<p>No sources.</p>'}
+            <h3>Sources</h3>${sources.length ? `<ul class="sources-list">${sources.map(s => `<li>${s.title ? escapeHtml(s.title) : ''} ${s.url ? `<a href="${escapeHtml(s.url)}" target="_blank">${escapeHtml(s.url)}</a>` : ''}</li>`).join('')}</ul>` : '<p>No sources.</p>'}
         `;
     }
 
     function outreachTabHtml(p) {
         return `
-            <h3>Connection Request</h3><p>${escapeHtml(p.connectionRequest || '—')} <span class="text-xs">(${p.connectionRequest?.length||0}/280)</span></p>
+            <h3>Connection Request</h3><p>${escapeHtml(p.connectionRequest || '—')}</p>
             <h3>Personalized Message</h3><p>${escapeHtml(p.initialMessage || '—')}</p>
             <h3>Follow-up 1</h3><p>${escapeHtml(p.followUp1 || '—')}</p>
             <h3>Follow-up 2</h3><p>${escapeHtml(p.followUp2 || '—')}</p>
-            <h3>Reply Question</h3><p>${escapeHtml(p.replyQuestion || '—')}</p>
-            <h3>Objection Response</h3><p>${escapeHtml(p.objectionResponse || '—')}</p>
             <h3>Mini Audit</h3><p>${escapeHtml(p.miniAudit || '—')}</p>
             <div class="flex mt-10">
                 <button class="btn" onclick="copyText('${escapeHtml(p.initialMessage || '')}')">Copy Message</button>
                 <button class="btn" onclick="generateMessageForProspect('${p.id}')">Regenerate</button>
-                <button class="btn" onclick="editProspect('${p.id}')">Edit Outreach</button>
             </div>
         `;
     }
@@ -1522,12 +1453,8 @@
                 <div class="form-row"><div><label>First Name</label><input type="text" id="editFirstName" value="${escapeHtml(p.firstName||'')}"></div><div><label>Last Name</label><input type="text" id="editLastName" value="${escapeHtml(p.lastName||'')}"></div></div>
                 <div class="form-row"><div><label>LinkedIn URL</label><input type="url" id="editLinkedinUrl" value="${escapeHtml(p.linkedinUrl||'')}"></div><div><label>Company</label><input type="text" id="editCompanyName" value="${escapeHtml(p.companyName||'')}"></div></div>
                 <div class="form-row"><div><label>Job Title</label><input type="text" id="editJobTitle" value="${escapeHtml(p.jobTitle||'')}"></div><div><label>Email</label><input type="email" id="editEmail" value="${escapeHtml(p.email||'')}"></div></div>
-                <div class="form-row"><div><label>Website</label><input type="url" id="editWebsite" value="${escapeHtml(p.companyWebsite || p.website || '')}"></div><div><label>Industry</label><input type="text" id="editIndustry" value="${escapeHtml(p.industry||'')}"></div></div>
                 <div class="form-row"><div><label>ICP Score</label><input type="number" id="editIcpScore" value="${p.icpScore||0}"></div><div><label>Decision Maker</label><input type="number" id="editDmScore" value="${p.decisionMakerScore||0}"></div></div>
                 <div class="form-row"><div><label>Priority</label><select id="editPriority"><option value="HIGH" ${p.priority==='HIGH'?'selected':''}>High</option><option value="MEDIUM" ${p.priority==='MEDIUM'?'selected':''}>Medium</option><option value="LOW" ${p.priority==='LOW'?'selected':''}>Low</option></select></div><div><label>Stage</label><select id="editStage">${STAGES.map(s=>`<option value="${s}" ${p.stage===s?'selected':''}>${s}</option>`).join('')}</select></div></div>
-                <div class="form-row single"><label>Next Action</label><input type="text" id="editNextAction" value="${escapeHtml(p.nextAction||'')}"></div>
-                <div class="form-row single"><label>Tags (comma separated)</label><input type="text" id="editTags" value="${escapeHtml((p.tags||[]).join(', '))}"></div>
-                <div class="form-row single"><label>Lists</label><select id="editLists" multiple size="4">${appState.lists.map(l => `<option value="${l.id}" ${(p.listIds||[]).includes(l.id)?'selected':''}>${escapeHtml(l.name)}</option>`).join('')}</select></div>
                 <div class="flex mt-10">
                     <button type="submit" class="btn primary">Save</button>
                     <button type="button" class="btn" onclick="closeModal()">Cancel</button>
@@ -1546,16 +1473,10 @@
             companyName: document.getElementById('editCompanyName')?.value || '',
             jobTitle: document.getElementById('editJobTitle')?.value || '',
             email: document.getElementById('editEmail')?.value || '',
-            companyWebsite: document.getElementById('editWebsite')?.value || '',
-            website: document.getElementById('editWebsite')?.value || '',
-            industry: document.getElementById('editIndustry')?.value || '',
             icpScore: Number(document.getElementById('editIcpScore')?.value) || 0,
             decisionMakerScore: Number(document.getElementById('editDmScore')?.value) || 0,
             priority: document.getElementById('editPriority')?.value || 'LOW',
-            stage: document.getElementById('editStage')?.value || 'NEW',
-            nextAction: document.getElementById('editNextAction')?.value || '',
-            tags: document.getElementById('editTags')?.value.split(',').map(t=>t.trim()).filter(Boolean) || [],
-            listIds: Array.from(document.getElementById('editLists')?.selectedOptions || []).map(o => o.value)
+            stage: document.getElementById('editStage')?.value || 'NEW'
         };
         updates.fullName = [updates.firstName, updates.lastName].filter(Boolean).join(' ');
         updateProspect(id, updates);
@@ -1569,7 +1490,7 @@
         if (isAnalyzing) { toast('Analysis already running', 'warning'); return; }
         const p = appState.prospects.find(x => x.id === id);
         if (!p) { toast('Prospect not found', 'error'); return; }
-        if (!appState.settings.apiKey) { toast('Please configure Groq API key', 'error'); return; }
+        if (!appState.settings.apiKey) { toast('Please configure Groq API key in Settings', 'error'); return; }
         isAnalyzing = true;
         const btn = event?.target; if (btn) btn.disabled = true;
         try {
@@ -1582,12 +1503,11 @@
                 companyName: p.companyName,
                 jobTitle: p.jobTitle,
                 email: p.email,
-                website: p.companyWebsite || p.website,
+                website: p.website,
                 industry: p.industry,
                 location: p.location,
                 about: p.about,
                 skills: p.skills,
-                experience: p.experience,
                 screenshots: p.screenshots || []
             };
             const result = await performFullAnalysis(input, null, null);
@@ -1617,7 +1537,7 @@
         const btn = event?.target; if (btn) btn.disabled = true;
         try {
             toast('Generating message...', 'info');
-            const system = 'You are an expert LinkedIn outreach writer. Generate personalized messages for the given prospect. Use provided facts only. Never invent. Return JSON with fields: connectionRequest (max 280 chars), initialMessage, followUp1, followUp2, replyQuestion, objectionResponse, miniAudit, outreachAngle. Ensure messages are specific, human, no service dump, no generic openers.';
+            const system = 'You are an expert LinkedIn outreach writer. Generate personalized messages. Return JSON with fields: connectionRequest (max 280 chars), initialMessage, followUp1, followUp2, replyQuestion, objectionResponse, miniAudit, outreachAngle.';
             const user = `Prospect data: ${JSON.stringify(p, null, 2)}. Generate outreach.`;
             const content = await callGroqChat(system, user, appState.settings.textModel, { temperature: 0.5, max_tokens: 2000, response_format: { type: 'json_object' } });
             const parsed = parseAIResponse(content);
@@ -1644,7 +1564,7 @@
 
     function copyText(text) {
         if (!text) { toast('Nothing to copy', 'warning'); return; }
-        navigator.clipboard.writeText(text).then(() => toast('Message copied', 'success')).catch(() => toast('Copy failed', 'error'));
+        navigator.clipboard.writeText(text).then(() => toast('Message copied!', 'success')).catch(() => toast('Copy failed', 'error'));
     }
 
     // ==================== COMPANIES ====================
@@ -1653,11 +1573,10 @@
         container.innerHTML = `
             <div class="flex-between mb-10"><h3>Companies (${companies.length})</h3><button class="btn gold" onclick="openAddCompanyModal()">+ Add Company</button></div>
             <div class="table-wrap card">
-                <table><thead><tr><th>Name</th><th>Website</th><th>Industry</th><th>Business Model</th><th>Prospects</th><th>Last Researched</th><th>Actions</th></tr></thead>
-                <tbody>${companies.length ? companies.map(c => {
-                    const prospectCount = appState.prospects.filter(p => p.companyName === c.name).length;
-                    return `<tr><td>${escapeHtml(c.name)}</td><td>${escapeHtml(c.website || '—')}</td><td>${escapeHtml(c.industry || '—')}</td><td>${escapeHtml(c.businessModel || '—')}</td><td>${prospectCount}</td><td>${formatDate(c.lastResearched)}</td><td><button class="btn small" onclick="viewCompany('${c.id}')">View</button></td></tr>`;
-                }).join('') : '<tr><td colspan="7" class="empty-state">No companies yet.</td></tr>'}</tbody></table>
+                <table><thead><tr><th>Name</th><th>Website</th><th>Industry</th><th>Actions</th></tr></thead>
+                <tbody>${companies.length ? companies.map(c => `
+                    <tr><td>${escapeHtml(c.name)}</td><td>${escapeHtml(c.website || '—')}</td><td>${escapeHtml(c.industry || '—')}</td><td><button class="btn small" onclick="viewCompany('${c.id}')">View</button></td></tr>
+                `).join('') : '<tr><td colspan="4" class="empty-state">No companies yet.</td></tr>'}</tbody></table>
             </div>
         `;
     }
@@ -1668,7 +1587,6 @@
             <form id="addCompanyForm" onsubmit="event.preventDefault(); saveCompany();">
                 <div class="form-row"><div><label>Name *</label><input type="text" id="companyNameInput" required></div><div><label>Website</label><input type="url" id="companyWebsiteInput"></div></div>
                 <div class="form-row"><div><label>Industry</label><input type="text" id="companyIndustryInput"></div><div><label>Business Model</label><input type="text" id="companyModelInput"></div></div>
-                <div class="form-row single"><label>Summary</label><textarea id="companySummaryInput"></textarea></div>
                 <div class="flex mt-10"><button type="submit" class="btn primary">Save</button><button type="button" class="btn" onclick="closeModal()">Cancel</button></div>
             </form>
         `);
@@ -1682,8 +1600,7 @@
             website: document.getElementById('companyWebsiteInput')?.value || '',
             industry: document.getElementById('companyIndustryInput')?.value || '',
             businessModel: document.getElementById('companyModelInput')?.value || '',
-            summary: document.getElementById('companySummaryInput')?.value || '',
-            research: {}, sources: [], lastResearched: null, createdAt: todayISO(), updatedAt: todayISO()
+            createdAt: todayISO(), updatedAt: todayISO()
         });
         saveState(); closeModal(); toast('Company added'); renderView(currentView);
     }
@@ -1691,15 +1608,11 @@
     function viewCompany(id) {
         const c = appState.companies.find(x => x.id === id);
         if (!c) return;
-        const prospects = appState.prospects.filter(p => p.companyName === c.name);
         openModal(`
             <div class="modal-header"><h2>${escapeHtml(c.name)}</h2><button class="close-btn" onclick="closeModal()">×</button></div>
             <p><strong>Website:</strong> ${escapeHtml(c.website || '—')}</p>
             <p><strong>Industry:</strong> ${escapeHtml(c.industry || '—')}</p>
             <p><strong>Business Model:</strong> ${escapeHtml(c.businessModel || '—')}</p>
-            <p><strong>Summary:</strong> ${escapeHtml(c.summary || '—')}</p>
-            <h3>Prospects (${prospects.length})</h3>
-            <ul>${prospects.map(p => `<li><a href="#" onclick="viewProspect('${p.id}'); event.preventDefault();">${escapeHtml(p.fullName || p.firstName)}</a></li>`).join('') || '<li>None</li>'}</ul>
         `);
     }
 
@@ -1725,7 +1638,7 @@
         saveState(); closeModal(); renderView(currentView);
     }
     function deleteList(id) {
-        if (!confirm('Delete list? Prospects will retain other lists.')) return;
+        if (!confirm('Delete list?')) return;
         appState.lists = appState.lists.filter(l => l.id !== id);
         appState.prospects.forEach(p => p.listIds = (p.listIds||[]).filter(lid => lid !== id));
         saveState(); renderView(currentView);
@@ -1734,11 +1647,10 @@
     // ==================== RESEARCH ====================
     function renderResearch(container) {
         container.innerHTML = `
-            <div class="card"><h3>Company Research</h3><p class="text-sm">Research public company information using Groq's research model. Enter a company name or website.</p>
+            <div class="card"><h3>Company Research</h3>
                 <div class="flex mt-10"><input type="text" id="researchQuery" placeholder="Company name or website" style="flex:1"><button class="btn gold" onclick="researchCompany()">Research</button></div>
                 <div id="researchResult" class="mt-10"></div>
             </div>
-            <div class="card"><h3>Existing Company Memory</h3>${appState.companies.length ? appState.companies.map(c => `<div class="activity-item"><strong>${escapeHtml(c.name)}</strong> — ${formatDate(c.lastResearched)} <button class="btn small" onclick="viewCompany('${c.id}')">View</button></div>`).join('') : '<div class="empty-state">No companies researched yet.</div>'}</div>
         `;
     }
 
@@ -1751,13 +1663,7 @@
         try {
             const result = await callGroqResearch(query);
             document.getElementById('researchResult').innerHTML = `<pre>${escapeHtml(JSON.stringify(result, null, 2))}</pre>`;
-            const existing = appState.companies.find(c => c.name.toLowerCase() === query.toLowerCase() || (c.website && c.website.toLowerCase() === query.toLowerCase()));
-            if (existing) {
-                existing.research = result; existing.lastResearched = todayISO(); existing.updatedAt = todayISO();
-            } else {
-                appState.companies.push({ id: createId(), name: query, website: '', industry: '', businessModel: result.businessModel || '', summary: result.summary || '', research: result, sources: result.sources || [], lastResearched: todayISO(), createdAt: todayISO(), updatedAt: todayISO() });
-            }
-            saveState(); toast('Research complete');
+            toast('Research complete');
         } catch(e) { document.getElementById('researchResult').innerHTML = `<p class="text-danger">${escapeHtml(e.message)}</p>`; } finally { btn.disabled = false; }
     }
 
@@ -1787,7 +1693,6 @@
             <form id="addTaskForm" onsubmit="event.preventDefault(); saveTask();">
                 <div class="form-row"><div><label>Title *</label><input type="text" id="taskTitle" required></div><div><label>Due Date</label><input type="date" id="taskDueDate"></div></div>
                 <div class="form-row"><div><label>Priority</label><select id="taskPriority"><option>High</option><option selected>Medium</option><option>Low</option></select></div><div><label>Prospect</label><select id="taskProspect"><option value="">None</option>${appState.prospects.map(p => `<option value="${p.id}">${escapeHtml(p.fullName || p.firstName)}</option>`).join('')}</select></div></div>
-                <div class="form-row single"><label>Notes</label><textarea id="taskNotes"></textarea></div>
                 <div class="flex mt-10"><button type="submit" class="btn primary">Save</button><button type="button" class="btn" onclick="closeModal()">Cancel</button></div>
             </form>`);
     }
@@ -1798,7 +1703,6 @@
             id: createId(), title, dueDate: document.getElementById('taskDueDate')?.value || null,
             priority: document.getElementById('taskPriority')?.value || 'Medium',
             prospectId: document.getElementById('taskProspect')?.value || null,
-            notes: document.getElementById('taskNotes')?.value || '',
             status: 'Pending', createdAt: todayISO(), updatedAt: todayISO()
         });
         saveState(); closeModal(); renderView(currentView);
@@ -1806,7 +1710,7 @@
     function toggleTaskStatus(id) {
         const t = appState.tasks.find(x => x.id === id);
         if (!t) return;
-        t.status = t.status === 'Pending' ? 'Completed' : t.status === 'Completed' ? 'Cancelled' : 'Pending';
+        t.status = t.status === 'Pending' ? 'Completed' : 'Pending';
         updateTask(id, { status: t.status });
     }
     function deleteTask(id) {
@@ -1825,58 +1729,35 @@
     function renderAnalytics(container) {
         const p = appState.prospects;
         const total = p.length;
-        const connectionSent = p.filter(x => x.stage === 'CONNECTION SENT' || x.connectionDate).length;
-        const connected = p.filter(x => ['CONNECTED','MESSAGE SENT','REPLIED','INTERESTED','AUDIT OFFERED','AUDIT ACCEPTED','AUDIT DELIVERED','CALL BOOKED','PROPOSAL SENT','WON'].includes(x.stage)).length;
-        const replied = p.filter(x => ['REPLIED','INTERESTED','AUDIT OFFERED','AUDIT ACCEPTED','AUDIT DELIVERED','CALL BOOKED','PROPOSAL SENT','WON'].includes(x.stage)).length;
-        const positiveReply = p.filter(x => ['INTERESTED','AUDIT OFFERED','AUDIT ACCEPTED','AUDIT DELIVERED','CALL BOOKED','PROPOSAL SENT','WON'].includes(x.stage)).length;
-        const audit = p.filter(x => ['AUDIT OFFERED','AUDIT ACCEPTED','AUDIT DELIVERED'].includes(x.stage)).length;
-        const call = p.filter(x => ['CALL BOOKED','PROPOSAL SENT'].includes(x.stage)).length;
-        const proposal = p.filter(x => x.stage === 'PROPOSAL SENT').length;
+        const connectionSent = p.filter(x => x.stage === 'CONNECTION SENT').length;
+        const connected = p.filter(x => ['CONNECTED','MESSAGE SENT','REPLIED','INTERESTED'].includes(x.stage)).length;
+        const replied = p.filter(x => ['REPLIED','INTERESTED'].includes(x.stage)).length;
         const won = p.filter(x => x.stage === 'WON').length;
-        const rate = (num, den) => den > 0 ? Math.round(num / den * 100) + '%' : 'Insufficient data';
-        const weeklyReview = getWeeklyReview();
+        const rate = (num, den) => den > 0 ? Math.round(num / den * 100) + '%' : '0%';
+
         container.innerHTML = `
             <div class="metrics-grid">
-                <div class="metric-card"><div class="value">${rate(connectionSent, total)}</div><div class="label">Connection Acceptance</div></div>
+                <div class="metric-card"><div class="value">${rate(connectionSent, total)}</div><div class="label">Connection Rate</div></div>
                 <div class="metric-card"><div class="value">${rate(replied, connected)}</div><div class="label">Reply Rate</div></div>
-                <div class="metric-card"><div class="value">${rate(positiveReply, replied)}</div><div class="label">Positive Reply Rate</div></div>
-                <div class="metric-card"><div class="value">${rate(audit, replied)}</div><div class="label">Audit Rate</div></div>
-                <div class="metric-card"><div class="value">${rate(call, replied)}</div><div class="label">Call Rate</div></div>
-                <div class="metric-card"><div class="value">${rate(proposal, replied)}</div><div class="label">Proposal Rate</div></div>
                 <div class="metric-card"><div class="value">${rate(won, total)}</div><div class="label">Win Rate</div></div>
             </div>
-            <div class="card"><h3>Weekly Review</h3>
-                <p><strong>Best Target Group:</strong> ${escapeHtml(weeklyReview.bestTargetGroup || 'Insufficient data')}</p>
-                <p><strong>Best List:</strong> ${escapeHtml(weeklyReview.bestList || 'Insufficient data')}</p>
-                <p><strong>Best Outreach Angle:</strong> ${escapeHtml(weeklyReview.bestAngle || 'Insufficient data')}</p>
-                <p><strong>Best Message:</strong> ${escapeHtml(weeklyReview.bestMessage || 'Insufficient data')}</p>
-                <p><strong>Bottleneck:</strong> ${escapeHtml(weeklyReview.bottleneck || 'Insufficient data')}</p>
-            </div>
         `;
-    }
-
-    function getWeeklyReview() {
-        const p = appState.prospects;
-        const stagesCount = {};
-        STAGES.forEach(s => stagesCount[s] = p.filter(x => x.stage === s).length);
-        const maxStage = Object.keys(stagesCount).reduce((a,b) => stagesCount[a] > stagesCount[b] ? a : b, 'NEW');
-        return { bestTargetGroup: 'Manual analysis needed', bestList: 'Manual analysis needed', bestAngle: 'Manual analysis needed', bestMessage: 'Manual analysis needed', bottleneck: `Many prospects in ${maxStage}` };
     }
 
     // ==================== WINNERS ====================
     function renderWinners(container) {
         container.innerHTML = `
             <div class="flex-between mb-10"><h3>Winners Library</h3><button class="btn gold" onclick="openAddWinnerModal()">+ Add Winner</button></div>
-            <div class="card"><div class="table-wrap"><table><thead><tr><th>Message</th><th>Target Group</th><th>Angle</th><th>Result</th><th>Date</th><th>Actions</th></tr></thead><tbody>${appState.winners.length ? appState.winners.map(w => `<tr><td>${escapeHtml(w.message)}</td><td>${escapeHtml(w.targetGroup||'')}</td><td>${escapeHtml(w.angle||'')}</td><td>${escapeHtml(w.result||'')}</td><td>${formatDate(w.date)}</td><td><button class="btn small danger" onclick="deleteWinner('${w.id}')">Delete</button></td></tr>`).join('') : '<tr><td colspan="6" class="empty-state">No winners saved yet.</td></tr>'}</tbody></table></div></div>
+            <div class="card"><div class="table-wrap"><table><thead><tr><th>Message</th><th>Result</th><th>Date</th><th>Actions</th></tr></thead><tbody>${appState.winners.length ? appState.winners.map(w => `
+                <tr><td>${escapeHtml(w.message)}</td><td>${escapeHtml(w.result||'')}</td><td>${formatDate(w.date)}</td><td><button class="btn small danger" onclick="deleteWinner('${w.id}')">Delete</button></td></tr>
+            `).join('') : '<tr><td colspan="4" class="empty-state">No winners saved yet.</td></tr>'}</tbody></table></div></div>
         `;
     }
     function openAddWinnerModal() {
         openModal(`<div class="modal-header"><h2>Add Winner Message</h2><button class="close-btn" onclick="closeModal()">×</button></div>
             <form id="addWinnerForm" onsubmit="event.preventDefault(); saveWinner();">
                 <div class="form-row single"><label>Message *</label><textarea id="winnerMessage" required></textarea></div>
-                <div class="form-row"><div><label>Target Group</label><input type="text" id="winnerTarget"></div><div><label>Angle</label><input type="text" id="winnerAngle"></div></div>
                 <div class="form-row"><div><label>Result</label><input type="text" id="winnerResult"></div><div><label>Date</label><input type="date" id="winnerDate"></div></div>
-                <div class="form-row single"><label>Notes</label><textarea id="winnerNotes"></textarea></div>
                 <div class="flex mt-10"><button type="submit" class="btn primary">Save</button><button type="button" class="btn" onclick="closeModal()">Cancel</button></div>
             </form>`);
     }
@@ -1885,11 +1766,8 @@
         if (!message) return;
         appState.winners.push({
             id: createId(), message,
-            targetGroup: document.getElementById('winnerTarget')?.value || '',
-            angle: document.getElementById('winnerAngle')?.value || '',
             result: document.getElementById('winnerResult')?.value || '',
-            date: document.getElementById('winnerDate')?.value || todayISO(),
-            notes: document.getElementById('winnerNotes')?.value || ''
+            date: document.getElementById('winnerDate')?.value || todayISO()
         });
         saveState(); closeModal(); renderView(currentView);
     }
@@ -1907,24 +1785,20 @@
                 <div class="form-row"><div><label>Provider</label><input type="text" value="Groq" disabled></div><div><label>API Key</label><div class="flex"><input type="password" id="settingsApiKey" value="${escapeHtml(s.apiKey)}" placeholder="gsk_..."><button class="btn" onclick="toggleApiKeyVisibility()">Show</button></div></div></div>
                 <div class="form-row"><div><label>Text Model</label><input type="text" id="settingsTextModel" value="${escapeHtml(s.textModel)}"></div><div><label>Vision Model</label><input type="text" id="settingsVisionModel" value="${escapeHtml(s.visionModel)}"></div></div>
                 <div class="form-row"><div><label>Research Model</label><input type="text" id="settingsResearchModel" value="${escapeHtml(s.researchModel)}"></div><div><label>Live Research Enabled</label><input type="checkbox" id="settingsLiveResearch" ${s.liveResearch ? 'checked' : ''}></div></div>
-                <div class="form-row"><div><label>Chat Endpoint</label><input type="text" value="https://api.groq.com/openai/v1/chat/completions" disabled></div><div><label>Responses Endpoint</label><input type="text" value="https://api.groq.com/openai/v1/responses" disabled></div></div>
                 <div class="form-row single"><div class="flex"><button class="btn primary" onclick="saveSettings()">Save Configuration</button><button class="btn gold" onclick="testGroqConnection()">Test Connection</button><button class="btn" onclick="loadGroqModels()">Load Available Models</button><button class="btn danger" onclick="clearApiKey()">Clear API Key</button></div></div>
-                <p class="text-xs mt-10"><strong>Security Warning:</strong> Browser-side API keys can be exposed. For production security, move API requests behind a Netlify Function/server-side proxy. localStorage does not make an API key secure.</p>
+                <p class="text-xs mt-10" style="color:#999;">Security Warning: Browser-side API keys can be exposed.</p>
             </div>
             <div class="card"><h3>ICP Configuration</h3>
-                <div class="form-row"><div><label>Target Industries (comma)</label><input type="text" id="icpIndustries" value="${escapeHtml(s.icp.targetIndustries.join(', '))}"></div><div><label>Target Roles (comma)</label><input type="text" id="icpRoles" value="${escapeHtml(s.icp.targetRoles.join(', '))}"></div></div>
-                <div class="form-row"><div><label>Target Countries (comma)</label><input type="text" id="icpCountries" value="${escapeHtml(s.icp.targetCountries.join(', '))}"></div><div><label>Target Company Sizes (comma)</label><input type="text" id="icpCompanySizes" value="${escapeHtml(s.icp.targetCompanySize.join(', '))}"></div></div>
-                <div class="form-row"><div><label>Target Services (comma)</label><input type="text" id="icpServices" value="${escapeHtml(s.icp.targetServices.join(', '))}"></div><div><label>Excluded Prospects (comma)</label><input type="text" id="icpExcluded" value="${escapeHtml(s.icp.excludedProspects.join(', '))}"></div></div>
+                <div class="form-row"><div><label>Target Industries</label><input type="text" id="icpIndustries" value="${escapeHtml(s.icp.targetIndustries.join(', '))}"></div><div><label>Target Roles</label><input type="text" id="icpRoles" value="${escapeHtml(s.icp.targetRoles.join(', '))}"></div></div>
+                <div class="form-row"><div><label>Target Countries</label><input type="text" id="icpCountries" value="${escapeHtml(s.icp.targetCountries.join(', '))}"></div><div><label>Target Company Sizes</label><input type="text" id="icpCompanySizes" value="${escapeHtml(s.icp.targetCompanySize.join(', '))}"></div></div>
                 <div class="form-row single"><button class="btn primary" onclick="saveIcpSettings()">Save ICP</button></div>
             </div>
             <div class="card"><h3>API Usage</h3>
-                <p><strong>Requests This Session:</strong> ${appState.apiUsage.requests}</p>
+                <p><strong>Requests:</strong> ${appState.apiUsage.requests}</p>
                 <p><strong>Successful:</strong> ${appState.apiUsage.successful}</p>
                 <p><strong>Failed:</strong> ${appState.apiUsage.failed}</p>
-                <p><strong>429 Errors:</strong> ${appState.apiUsage.rateLimited}</p>
-                <p><strong>Last Request:</strong> ${formatDate(appState.apiUsage.lastRequest)}</p>
+                <p><strong>Rate Limited:</strong> ${appState.apiUsage.rateLimited}</p>
                 <p><strong>Last Error:</strong> ${escapeHtml(appState.apiUsage.lastError || 'None')}</p>
-                <p><strong>Current Model:</strong> ${escapeHtml(appState.apiUsage.currentModel || '—')}</p>
             </div>
             <div class="card"><h3>Data Management</h3>
                 <div class="flex">
@@ -1933,7 +1807,7 @@
                     <button class="btn" onclick="document.getElementById('importFileInput').click()">Import JSON/CSV</button>
                     <button class="btn danger" onclick="clearAllData()">Clear All Data</button>
                 </div>
-                <div class="mt-10"><h4>Trash / Restore</h4>${appState.trash.length ? appState.trash.map((item, i) => `<div class="activity-item"><strong>${item.type}:</strong> ${escapeHtml(item.data.fullName || item.data.name || 'Unknown')} <button class="btn small" onclick="restoreTrashItem(${i})">Restore</button></div>`).join('') : '<div class="empty-state">Trash is empty.</div>'}</div>
+                <div class="mt-10"><h4>Trash</h4>${appState.trash.length ? appState.trash.map((item, i) => `<div class="activity-item"><strong>${escapeHtml(item.data.fullName || item.data.name || 'Unknown')}</strong> <button class="btn small" onclick="restoreTrashItem(${i})">Restore</button></div>`).join('') : '<div class="empty-state">Trash is empty.</div>'}</div>
             </div>
         `;
         updateApiStatus();
@@ -1941,13 +1815,13 @@
 
     function toggleApiKeyVisibility() {
         const input = document.getElementById('settingsApiKey');
-        if (input.type === 'password') input.type = 'text'; else input.type = 'password';
+        input.type = input.type === 'password' ? 'text' : 'password';
     }
 
     function saveSettings() {
         appState.settings.apiKey = document.getElementById('settingsApiKey')?.value.trim() || '';
         appState.settings.textModel = document.getElementById('settingsTextModel')?.value.trim() || 'openai/gpt-oss-120b';
-        appState.settings.visionModel = document.getElementById('settingsVisionModel')?.value.trim() || 'qwen/qwen3.6-27b';
+        appState.settings.visionModel = document.getElementById('settingsVisionModel')?.value.trim() || 'llama-3.2-90b-vision-preview';
         appState.settings.researchModel = document.getElementById('settingsResearchModel')?.value.trim() || 'groq/compound';
         appState.settings.liveResearch = document.getElementById('settingsLiveResearch')?.checked || false;
         saveState();
@@ -1961,8 +1835,6 @@
         appState.settings.icp.targetRoles = document.getElementById('icpRoles')?.value.split(',').map(s=>s.trim()).filter(Boolean) || [];
         appState.settings.icp.targetCountries = document.getElementById('icpCountries')?.value.split(',').map(s=>s.trim()).filter(Boolean) || [];
         appState.settings.icp.targetCompanySize = document.getElementById('icpCompanySizes')?.value.split(',').map(s=>s.trim()).filter(Boolean) || [];
-        appState.settings.icp.targetServices = document.getElementById('icpServices')?.value.split(',').map(s=>s.trim()).filter(Boolean) || [];
-        appState.settings.icp.excludedProspects = document.getElementById('icpExcluded')?.value.split(',').map(s=>s.trim()).filter(Boolean) || [];
         saveState();
         toast('ICP settings saved');
     }
@@ -1970,50 +1842,76 @@
     function clearApiKey() {
         appState.settings.apiKey = '';
         saveState();
-        renderView(currentView);
+        document.getElementById('settingsApiKey').value = '';
+        updateApiStatus();
         toast('API key cleared');
     }
 
     async function testGroqConnection() {
         const key = document.getElementById('settingsApiKey')?.value.trim() || appState.settings.apiKey;
         if (!key) { toast('Enter API key first', 'error'); return; }
-        appState.settings.apiKey = key; saveState();
-        const btn = event.target; btn.disabled = true;
+        if (!key.startsWith('gsk_')) { toast('Invalid API key format. Must start with gsk_', 'error'); return; }
+        
+        appState.settings.apiKey = key;
+        saveState();
+        const btn = event.target;
+        btn.disabled = true;
+        btn.textContent = 'Testing...';
         try {
             const res = await fetch('https://api.groq.com/openai/v1/chat/completions', {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + key },
-                body: JSON.stringify({ model: appState.settings.textModel || 'openai/gpt-oss-120b', messages: [{ role: 'user', content: 'Reply with exactly: GROQ_CONNECTED' }], max_tokens: 10, temperature: 0 })
+                headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + key.trim() },
+                body: JSON.stringify({ 
+                    model: 'openai/gpt-oss-120b', 
+                    messages: [{ role: 'user', content: 'Reply with exactly: GROQ_CONNECTED' }], 
+                    max_tokens: 10,
+                    temperature: 0
+                })
             });
             if (!res.ok) {
                 const err = await res.text();
-                appState.apiUsage.failed++;
-                appState.apiUsage.lastError = `HTTP ${res.status}`;
-                throw new Error('Connection failed: HTTP ' + res.status + ' ' + err.substring(0,50));
+                if (res.status === 401) throw new Error('Invalid API key. Please check your Groq API key.');
+                if (res.status === 429) throw new Error('Rate limit reached. Please wait.');
+                throw new Error('HTTP ' + res.status + ': ' + err.substring(0, 100));
             }
             const data = await res.json();
             const text = data.choices?.[0]?.message?.content || '';
-            if (!text.includes('GROQ_CONNECTED')) throw new Error('Unexpected response');
-            appState.apiUsage.successful++;
-            appState.apiUsage.lastError = null;
-            toast('Groq API connected successfully', 'success');
-        } catch(e) { toast(e.message, 'error'); appState.apiUsage.failed++; appState.apiUsage.lastError = e.message; } finally { saveState(); updateApiStatus(); if (btn) btn.disabled = false; }
+            if (text.includes('GROQ_CONNECTED')) {
+                appState.apiUsage.successful++;
+                appState.apiUsage.lastError = null;
+                toast('✅ Groq API connected successfully!', 'success');
+                updateApiStatus();
+            } else {
+                throw new Error('Unexpected response: ' + text.substring(0, 50));
+            }
+        } catch(e) {
+            appState.apiUsage.failed++;
+            appState.apiUsage.lastError = e.message;
+            toast('❌ Connection failed: ' + e.message, 'error');
+            updateApiStatus();
+        } finally {
+            saveState();
+            btn.disabled = false;
+            btn.textContent = 'Test Connection';
+        }
     }
 
     async function loadGroqModels() {
         const key = document.getElementById('settingsApiKey')?.value.trim() || appState.settings.apiKey;
         if (!key) { toast('Enter API key first', 'error'); return; }
-        appState.settings.apiKey = key; saveState();
-        const btn = event.target; if (btn) btn.disabled = true;
+        const btn = event.target;
+        btn.disabled = true;
         try {
-            const res = await fetch('https://api.groq.com/openai/v1/models', { headers: { 'Authorization': 'Bearer ' + key } });
+            const res = await fetch('https://api.groq.com/openai/v1/models', {
+                headers: { 'Authorization': 'Bearer ' + key.trim() }
+            });
             if (!res.ok) throw new Error('Failed to load models: ' + res.status);
             const data = await res.json();
             const models = data.data?.map(m => m.id) || [];
             if (!models.length) throw new Error('No models returned');
-            toast('Loaded ' + models.length + ' models. Check console for list.');
+            toast('Loaded ' + models.length + ' models. Check console.');
             console.log('Available models:', models);
-        } catch(e) { toast(e.message, 'error'); } finally { if (btn) btn.disabled = false; }
+        } catch(e) { toast(e.message, 'error'); } finally { btn.disabled = false; }
     }
 
     // ==================== EXPORT/IMPORT ====================
@@ -2022,7 +1920,7 @@
         downloadBlob(blob, 'elitegrowthhub_backup.json');
     }
     function exportCSV() {
-        const headers = ['id','fullName','firstName','lastName','companyName','jobTitle','industry','icpScore','decisionMakerScore','priority','stage','nextAction','nextActionDate','linkedinUrl','email','website','tags','listIds'];
+        const headers = ['fullName','firstName','lastName','companyName','jobTitle','industry','icpScore','decisionMakerScore','priority','stage','linkedinUrl','email'];
         const rows = appState.prospects.map(p => headers.map(h => {
             let val = p[h] || '';
             if (Array.isArray(val)) val = val.join('; ');
@@ -2033,7 +1931,11 @@
     }
     function downloadBlob(blob, filename) {
         const url = URL.createObjectURL(blob);
-        const a = document.createElement('a'); a.href = url; a.download = filename; a.click(); URL.revokeObjectURL(url);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = filename;
+        a.click();
+        URL.revokeObjectURL(url);
     }
     document.getElementById('importFileInput').addEventListener('change', function(e) {
         const file = e.target.files[0];
@@ -2055,19 +1957,16 @@
     function importJSON(content) {
         const data = JSON.parse(content);
         if (!data || !data.prospects) throw new Error('Invalid JSON structure');
-        if (confirm('Import mode: Merge (OK) or Replace (Cancel)?')) {
+        if (confirm('Merge or Replace? (OK=Merge, Cancel=Replace)')) {
             appState.prospects = [...appState.prospects, ...(data.prospects||[])];
         } else {
             appState.prospects = data.prospects || [];
         }
         appState.companies = data.companies || appState.companies;
         appState.lists = data.lists || appState.lists;
-        appState.tags = data.tags || appState.tags;
         appState.tasks = data.tasks || appState.tasks;
         appState.winners = data.winners || appState.winners;
         appState.activities = data.activities || appState.activities;
-        appState.trash = data.trash || appState.trash;
-        appState.settings = { ...appState.settings, ...(data.settings||{}) };
         saveState();
         toast('Import successful');
         renderView(currentView);
@@ -2083,17 +1982,14 @@
             headers.forEach((h, j) => { obj[h] = values[j]?.replace(/^"|"$/g,'').replace(/""/g,'"') || ''; });
             if (!obj.id) obj.id = createId();
             obj.createdAt = obj.createdAt || todayISO();
-            obj.updatedAt = todayISO();
             obj.icpScore = Number(obj.icpScore) || 0;
             obj.decisionMakerScore = Number(obj.decisionMakerScore) || 0;
-            obj.tags = obj.tags ? obj.tags.split(';').map(t=>t.trim()).filter(Boolean) : [];
-            obj.listIds = obj.listIds ? obj.listIds.split(';').map(l=>l.trim()).filter(Boolean) : [];
             prospects.push(obj);
         }
-        if (confirm('Import CSV: Merge (OK) or Replace (Cancel)?')) {
-            appState.prospects = [...appState.prospects, ...prospects];
-        } else appState.prospects = prospects;
-        saveState(); toast('CSV imported'); renderView(currentView);
+        appState.prospects = [...appState.prospects, ...prospects];
+        saveState();
+        toast('CSV imported');
+        renderView(currentView);
     }
     function parseCSVLine(line) {
         let result = [], current = '', inQuotes = false;
@@ -2113,7 +2009,7 @@
         return result;
     }
     function clearAllData() {
-        if (!confirm('Delete ALL data? This cannot be undone unless you have a backup.')) return;
+        if (!confirm('Delete ALL data? This cannot be undone.')) return;
         if (!confirm('Are you absolutely sure?')) return;
         appState = defaultState();
         saveState();
@@ -2128,7 +2024,6 @@
             renderView('dashboard');
         } catch(e) {
             document.getElementById('content').innerHTML = `<div class="card"><h3>Application Error</h3><p>${escapeHtml(e.message)}</p></div>`;
-            console.error(e);
         }
     }
 
@@ -2139,7 +2034,7 @@
     }
 
     window.addEventListener('error', function(e) {
-        console.error('Global error:', e.message);
+        console.error('Error:', e.message);
     });
     </script>
 </body>
