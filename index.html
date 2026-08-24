@@ -380,6 +380,7 @@
     let isAnalyzing = false;
     let isGeneratingMessage = false;
     let isScrapingLinkedIn = false;
+    let scrapedData = null;
 
     // ==================== UTILITIES ====================
     function createId() { return Date.now().toString(36) + '_' + Math.random().toString(36).substring(2, 10); }
@@ -510,67 +511,12 @@
                 <div class="metric-card"><div class="value">${dnc}</div><div class="label">Do Not Contact</div></div>
             </div>
             <div class="card">
-                <h3>Charts</h3>
-                <div class="chart-container">
-                    <div class="chart-box"><h4>ICP Distribution</h4><canvas id="icpChart"></canvas></div>
-                    <div class="chart-box"><h4>Pipeline Stages</h4><canvas id="pipelineChart"></canvas></div>
-                    <div class="chart-box"><h4>Lead Quality</h4><canvas id="qualityChart"></canvas></div>
-                </div>
-            </div>
-            <div class="card">
                 <h3>Recent Activity</h3>
                 ${recent.length ? recent.map(a => `
                     <div class="activity-item"><span class="timestamp">${formatDate(a.createdAt)}</span> ${escapeHtml(a.text)}</div>
                 `).join('') : '<div class="empty-state">No activity yet.</div>'}
             </div>
         `;
-
-        setTimeout(() => {
-            drawBarChart('icpChart', ['0-20','21-40','41-60','61-80','81-100'], [
-                p.filter(x => x.icpScore >= 0 && x.icpScore <= 20).length,
-                p.filter(x => x.icpScore > 20 && x.icpScore <= 40).length,
-                p.filter(x => x.icpScore > 40 && x.icpScore <= 60).length,
-                p.filter(x => x.icpScore > 60 && x.icpScore <= 80).length,
-                p.filter(x => x.icpScore > 80).length
-            ], '#d4a017');
-            const stageCounts = STAGES.map(s => p.filter(x => x.stage === s).length);
-            drawBarChart('pipelineChart', STAGES, stageCounts, '#175cd3');
-            drawBarChart('qualityChart', ['High','Medium','Low','Unknown'], [
-                p.filter(x => x.priority === 'HIGH').length,
-                p.filter(x => x.priority === 'MEDIUM').length,
-                p.filter(x => x.priority === 'LOW').length,
-                p.filter(x => !x.priority).length
-            ], '#067647');
-        }, 100);
-    }
-
-    function drawBarChart(canvasId, labels, values, color) {
-        const canvas = document.getElementById(canvasId);
-        if (!canvas) return;
-        const ctx = canvas.getContext('2d');
-        const rect = canvas.parentElement.getBoundingClientRect();
-        canvas.width = rect.width || 300;
-        canvas.height = 200;
-        const w = canvas.width, h = canvas.height;
-        const padding = 30;
-        const chartW = w - padding * 2, chartH = h - padding * 2;
-        ctx.clearRect(0,0,w,h);
-        if (!labels.length) return;
-        const maxVal = Math.max(...values, 1);
-        const barW = chartW / labels.length * 0.7;
-        const gap = chartW / labels.length * 0.3;
-        ctx.font = '10px sans-serif';
-        labels.forEach((label, i) => {
-            const barH = (values[i] / maxVal) * chartH;
-            const x = padding + i * (chartW / labels.length) + gap / 2;
-            const y = h - padding - barH;
-            ctx.fillStyle = color;
-            ctx.fillRect(x, y, barW, barH);
-            ctx.fillStyle = '#555';
-            ctx.textAlign = 'center';
-            ctx.fillText(label.length > 8 ? label.substring(0,7)+'…' : label, x + barW/2, h - padding + 12);
-            ctx.fillText(values[i], x + barW/2, y - 4);
-        });
     }
 
     // ==================== PROSPECTS ====================
@@ -591,7 +537,7 @@
         container.innerHTML = `
             <div class="flex-between mb-10">
                 <div class="flex" style="flex-wrap:wrap;gap:6px;">
-                    <input type="text" placeholder="Search name, company, role, URL, website, industry, list, tags, status..." style="width:280px" id="prospectSearch" value="${escapeHtml(prospectsFilters.search)}" oninput="updateProspectFilters()">
+                    <input type="text" placeholder="Search name, company, role..." style="width:280px" id="prospectSearch" value="${escapeHtml(prospectsFilters.search)}" oninput="updateProspectFilters()">
                     <select id="prospectIcpFilter" onchange="updateProspectFilters()"><option value="">All ICP</option><option value="high">High (80+)</option><option value="medium">Medium (50-79)</option><option value="low">Low (<50)</option></select>
                     <select id="prospectDmFilter" onchange="updateProspectFilters()"><option value="">All DM</option><option value="high">High (80+)</option><option value="medium">Medium (50-79)</option><option value="low">Low (<50)</option></select>
                     <select id="prospectPriorityFilter" onchange="updateProspectFilters()"><option value="">All Priority</option><option value="HIGH">High</option><option value="MEDIUM">Medium</option><option value="LOW">Low</option></select>
@@ -693,212 +639,84 @@
         });
     }
 
-    // ==================== ADD/EDIT PROSPECT ====================
+    // ==================== OPEN ADD PROSPECT MODAL ====================
     function openAddProspectModal() {
         addProspectScreenshots = [];
+        scrapedData = null;
         openModal(`
-            <div class="modal-header"><h2>Add LinkedIn Prospect</h2><button class="close-btn" onclick="closeModal()">×</button></div>
+            <div class="modal-header">
+                <h2>Add LinkedIn Prospect</h2>
+                <button class="close-btn" onclick="closeModal()">×</button>
+            </div>
             <form id="addProspectForm" onsubmit="event.preventDefault();">
+                <!-- ============ MANUAL FIELDS ============ -->
                 <div class="form-row">
-                    <div><label>LinkedIn URL</label><input type="url" id="pLinkedinUrl" placeholder="https://www.linkedin.com/in/..."></div>
-                    <div><label>OR Upload Screenshots</label>
-                        <div class="upload-area" id="screenshotUploadArea" onclick="document.getElementById('screenshotInput').click()">
-                            Drag & Drop or Browse — PNG, JPG, WEBP
-                        </div>
-                        <input type="file" id="screenshotInput" accept=".png,.jpg,.jpeg,.webp" multiple class="hidden" onchange="handleScreenshotFiles(this.files)">
-                        <div class="preview-grid" id="screenshotPreviews"></div>
+                    <div>
+                        <label>First Name *</label>
+                        <input type="text" id="pFirstName" placeholder="Enter first name" required>
+                    </div>
+                    <div>
+                        <label>Last Name</label>
+                        <input type="text" id="pLastName" placeholder="Enter last name">
                     </div>
                 </div>
+                <div class="form-row">
+                    <div>
+                        <label>Company Name</label>
+                        <input type="text" id="pCompanyName" placeholder="Enter company name">
+                    </div>
+                    <div>
+                        <label>Job Title</label>
+                        <input type="text" id="pJobTitle" placeholder="Enter job title">
+                    </div>
+                </div>
+                <div class="form-row">
+                    <div>
+                        <label>LinkedIn URL</label>
+                        <input type="url" id="pLinkedinUrl" placeholder="https://www.linkedin.com/in/...">
+                    </div>
+                    <div>
+                        <label>Email</label>
+                        <input type="email" id="pEmail" placeholder="email@example.com">
+                    </div>
+                </div>
+                <div class="form-row">
+                    <div>
+                        <label>Website</label>
+                        <input type="url" id="pWebsite" placeholder="https://company.com">
+                    </div>
+                    <div>
+                        <label>Industry</label>
+                        <input type="text" id="pIndustry" placeholder="e.g., Marketing, Technology">
+                    </div>
+                </div>
+
+                <!-- ============ SCREENSHOT UPLOAD ============ -->
+                <div class="form-row single">
+                    <label>Upload LinkedIn Screenshots (Optional)</label>
+                    <div class="upload-area" id="screenshotUploadArea" onclick="document.getElementById('screenshotInput').click()">
+                        📤 Drag & Drop or Browse — PNG, JPG, WEBP
+                    </div>
+                    <input type="file" id="screenshotInput" accept=".png,.jpg,.jpeg,.webp" multiple class="hidden" onchange="handleScreenshotFiles(this.files)">
+                    <div class="preview-grid" id="screenshotPreviews"></div>
+                </div>
+
                 <div id="linkedinScrapeStatus" class="linkedin-scrape-status hidden"></div>
+                <div id="scrapedDataPreview" style="display:none;"></div>
+
+                <!-- ============ BUTTONS ============ -->
                 <div class="flex mt-10">
                     <button type="button" class="btn gold" id="scrapeLinkedInBtn" onclick="scrapeLinkedIn()">🔍 Scrape from LinkedIn URL</button>
-                    <button type="button" class="btn primary" id="saveProspectBtn" onclick="saveScrapedProspect()" disabled>Save Prospect</button>
+                    <button type="button" class="btn primary" id="saveProspectBtn" onclick="saveManualProspect()">💾 Save Prospect</button>
+                    <button type="button" class="btn gold" id="analyzeFromModalBtn" onclick="analyzeFromAddModal()">🤖 Analyze with AI</button>
                     <button type="button" class="btn" onclick="closeModal()">Cancel</button>
                 </div>
-                <div id="scrapedDataPreview" class="mt-10" style="display:none;"></div>
             </form>
         `);
         setupScreenshotDropzone();
-        // Enable save if screenshots are uploaded
-        document.addEventListener('screenshotsChanged', function() {
-            const btn = document.getElementById('saveProspectBtn');
-            if (btn && addProspectScreenshots.length > 0) btn.disabled = false;
-        });
     }
 
-    let scrapedData = null;
-
-    async function scrapeLinkedIn() {
-        if (isScrapingLinkedIn) { toast('Already scraping...', 'warning'); return; }
-        const url = document.getElementById('pLinkedinUrl')?.value.trim();
-        if (!url) { toast('Please enter a LinkedIn URL first', 'error'); return; }
-        if (!url.includes('linkedin.com/in/')) { toast('Please enter a valid LinkedIn profile URL (linkedin.com/in/...)', 'error'); return; }
-        
-        isScrapingLinkedIn = true;
-        const btn = document.getElementById('scrapeLinkedInBtn');
-        const statusEl = document.getElementById('linkedinScrapeStatus');
-        btn.disabled = true;
-        btn.textContent = '⏳ Scraping...';
-        statusEl.className = 'linkedin-scrape-status loading';
-        statusEl.classList.remove('hidden');
-        statusEl.innerHTML = '⏳ Fetching LinkedIn profile data...';
-
-        try {
-            // Call Netlify Function to scrape LinkedIn
-            const response = await fetch('/.netlify/functions/scrape-linkedin', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ url: url })
-            });
-
-            if (!response.ok) {
-                const errorText = await response.text();
-                throw new Error(`Server error: ${response.status} - ${errorText}`);
-            }
-
-            const data = await response.json();
-            
-            if (data.error) {
-                throw new Error(data.error);
-            }
-
-            scrapedData = data;
-            
-            // Show preview
-            const previewEl = document.getElementById('scrapedDataPreview');
-            previewEl.style.display = 'block';
-            previewEl.innerHTML = `
-                <div class="card" style="border:2px solid var(--success);">
-                    <h4>✅ Profile Data Extracted</h4>
-                    <div class="form-row three">
-                        <div><label>Name</label><input type="text" id="scrapedName" value="${escapeHtml(data.fullName || '')}"></div>
-                        <div><label>Job Title</label><input type="text" id="scrapedTitle" value="${escapeHtml(data.jobTitle || '')}"></div>
-                        <div><label>Company</label><input type="text" id="scrapedCompany" value="${escapeHtml(data.company || '')}"></div>
-                    </div>
-                    <div class="form-row">
-                        <div><label>Location</label><input type="text" id="scrapedLocation" value="${escapeHtml(data.location || '')}"></div>
-                        <div><label>Industry</label><input type="text" id="scrapedIndustry" value="${escapeHtml(data.industry || '')}"></div>
-                    </div>
-                    <div class="form-row single">
-                        <label>About</label>
-                        <textarea id="scrapedAbout" rows="2">${escapeHtml(data.about || '')}</textarea>
-                    </div>
-                    <div class="form-row single">
-                        <label>Experience</label>
-                        <textarea id="scrapedExperience" rows="3">${escapeHtml((data.experience || []).join('\n'))}</textarea>
-                    </div>
-                    <div class="form-row single">
-                        <label>Skills</label>
-                        <input type="text" id="scrapedSkills" value="${escapeHtml((data.skills || []).join(', '))}">
-                    </div>
-                </div>
-            `;
-
-            statusEl.className = 'linkedin-scrape-status success';
-            statusEl.innerHTML = '✅ Profile data extracted successfully! Review and save.';
-            
-            // Enable save button
-            const saveBtn = document.getElementById('saveProspectBtn');
-            saveBtn.disabled = false;
-            
-            toast('LinkedIn profile scraped successfully!', 'success');
-
-        } catch(e) {
-            statusEl.className = 'linkedin-scrape-status error';
-            statusEl.innerHTML = `❌ Error: ${escapeHtml(e.message)}`;
-            toast('Scraping failed: ' + e.message, 'error');
-        } finally {
-            isScrapingLinkedIn = false;
-            btn.disabled = false;
-            btn.textContent = '🔍 Scrape from LinkedIn URL';
-        }
-    }
-
-    function saveScrapedProspect() {
-        // Get data from form fields (allow user to edit before saving)
-        const firstName = document.getElementById('scrapedName')?.value?.split(' ')[0] || '';
-        const lastName = document.getElementById('scrapedName')?.value?.split(' ').slice(1).join(' ') || '';
-        const fullName = document.getElementById('scrapedName')?.value || '';
-        const jobTitle = document.getElementById('scrapedTitle')?.value || '';
-        const companyName = document.getElementById('scrapedCompany')?.value || '';
-        const location = document.getElementById('scrapedLocation')?.value || '';
-        const industry = document.getElementById('scrapedIndustry')?.value || '';
-        const about = document.getElementById('scrapedAbout')?.value || '';
-        const skills = document.getElementById('scrapedSkills')?.value?.split(',').map(s=>s.trim()).filter(Boolean) || [];
-        const linkedinUrl = document.getElementById('pLinkedinUrl')?.value.trim() || '';
-
-        if (!fullName && !companyName) {
-            toast('Please provide at least name or company', 'error');
-            return;
-        }
-
-        // Also check if we have screenshots
-        const hasScreenshots = addProspectScreenshots.length > 0;
-
-        // Build prospect data
-        const data = {
-            firstName: firstName || fullName.split(' ')[0] || '',
-            lastName: lastName || '',
-            fullName: fullName || [firstName, lastName].filter(Boolean).join(' '),
-            linkedinUrl: linkedinUrl,
-            companyName: companyName,
-            jobTitle: jobTitle,
-            location: location,
-            industry: industry,
-            about: about,
-            skills: skills,
-            experience: document.getElementById('scrapedExperience')?.value?.split('\n').filter(Boolean) || [],
-            screenshots: addProspectScreenshots,
-            stage: 'NEW',
-            status: 'Active',
-            listIds: [],
-            tags: [],
-            createdAt: todayISO(),
-            updatedAt: todayISO(),
-            icpScore: 0,
-            decisionMakerScore: 0,
-            relevanceScore: 0,
-            confidenceScore: 0,
-            riskLevel: 'Unknown',
-            priority: 'LOW',
-            shouldContact: true,
-            // Additional fields from scrape
-            companyWebsite: '',
-            businessModel: '',
-            painSignals: [],
-            opportunitySignals: [],
-            evidence: [],
-            guesses: [],
-            notVerified: [],
-            sources: [],
-            recommendedService: '',
-            serviceReason: '',
-            outreachAngle: '',
-            miniAudit: '',
-            connectionRequest: '',
-            initialMessage: '',
-            followUp1: '',
-            followUp2: '',
-            replyQuestion: '',
-            objectionResponse: '',
-            nextAction: '',
-            nextActionDate: null,
-            lastTouchDate: null,
-            notes: []
-        };
-
-        const dup = detectDuplicate(data);
-        if (dup) {
-            openDuplicateModal(dup, data, null);
-            return;
-        }
-
-        createProspect(data);
-        closeModal();
-        toast('Prospect saved successfully!', 'success');
-        renderView(currentView);
-    }
-
+    // ==================== SCREENSHOT HANDLING ====================
     function setupScreenshotDropzone() {
         const area = document.getElementById('screenshotUploadArea');
         if (!area) return;
@@ -918,10 +736,8 @@
             } catch(e) { toast('Image processing failed: ' + e.message, 'error'); }
         }
         renderScreenshotPreviews();
-        // Enable save if we have screenshots
         const btn = document.getElementById('saveProspectBtn');
-        if (btn) btn.disabled = false;
-        document.dispatchEvent(new Event('screenshotsChanged'));
+        if (btn && addProspectScreenshots.length > 0) btn.disabled = false;
     }
 
     async function processImageFile(file) {
@@ -975,6 +791,463 @@
             const btn = document.getElementById('saveProspectBtn');
             if (btn) btn.disabled = true;
         }
+    }
+
+    // ==================== SCRAPE LINKEDIN ====================
+    async function scrapeLinkedIn() {
+        if (isScrapingLinkedIn) { toast('Already scraping...', 'warning'); return; }
+        const url = document.getElementById('pLinkedinUrl')?.value.trim();
+        if (!url) { toast('Please enter a LinkedIn URL first', 'error'); return; }
+        if (!url.includes('linkedin.com/in/')) { toast('Please enter a valid LinkedIn profile URL', 'error'); return; }
+        
+        isScrapingLinkedIn = true;
+        const btn = document.getElementById('scrapeLinkedInBtn');
+        const statusEl = document.getElementById('linkedinScrapeStatus');
+        btn.disabled = true;
+        btn.textContent = '⏳ Scraping...';
+        statusEl.className = 'linkedin-scrape-status loading';
+        statusEl.classList.remove('hidden');
+        statusEl.innerHTML = '⏳ Fetching LinkedIn profile data...';
+
+        try {
+            const response = await fetch('/.netlify/functions/scrape-linkedin', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ url: url })
+            });
+
+            const data = await response.json();
+            
+            if (!response.ok || data.error) {
+                throw new Error(data.error || 'Scraping failed');
+            }
+
+            scrapedData = data;
+            
+            // Fill form fields with scraped data
+            if (data.fullName) {
+                const parts = data.fullName.split(' ');
+                document.getElementById('pFirstName').value = parts[0] || '';
+                document.getElementById('pLastName').value = parts.slice(1).join(' ') || '';
+            }
+            if (data.company) document.getElementById('pCompanyName').value = data.company;
+            if (data.jobTitle) document.getElementById('pJobTitle').value = data.jobTitle;
+            if (data.location) document.getElementById('pLocation')?.value = data.location;
+            if (data.industry) document.getElementById('pIndustry').value = data.industry;
+            if (data.about) document.getElementById('pAbout')?.value = data.about;
+            if (data.skills && data.skills.length) document.getElementById('pSkills')?.value = data.skills.join(', ');
+
+            // Show preview
+            const previewEl = document.getElementById('scrapedDataPreview');
+            previewEl.style.display = 'block';
+            previewEl.innerHTML = `
+                <div class="card" style="border:2px solid var(--success);margin-top:10px;">
+                    <h4>✅ Profile Data Extracted</h4>
+                    <div class="form-row three">
+                        <div><label>Name</label><input type="text" value="${escapeHtml(data.fullName || '')}" disabled></div>
+                        <div><label>Job Title</label><input type="text" value="${escapeHtml(data.jobTitle || '')}" disabled></div>
+                        <div><label>Company</label><input type="text" value="${escapeHtml(data.company || '')}" disabled></div>
+                    </div>
+                    <div class="form-row">
+                        <div><label>Location</label><input type="text" value="${escapeHtml(data.location || '')}" disabled></div>
+                        <div><label>Industry</label><input type="text" value="${escapeHtml(data.industry || '')}" disabled></div>
+                    </div>
+                </div>
+            `;
+
+            statusEl.className = 'linkedin-scrape-status success';
+            statusEl.innerHTML = '✅ Profile data extracted successfully! Review and save.';
+            
+            // Enable save button
+            const saveBtn = document.getElementById('saveProspectBtn');
+            saveBtn.disabled = false;
+            
+            toast('LinkedIn profile scraped successfully!', 'success');
+
+        } catch(e) {
+            statusEl.className = 'linkedin-scrape-status error';
+            statusEl.innerHTML = `❌ Error: ${escapeHtml(e.message)}`;
+            toast('Scraping failed: ' + e.message, 'error');
+        } finally {
+            isScrapingLinkedIn = false;
+            btn.disabled = false;
+            btn.textContent = '🔍 Scrape from LinkedIn URL';
+        }
+    }
+
+    // ==================== SAVE MANUAL PROSPECT ====================
+    function saveManualProspect() {
+        const firstName = document.getElementById('pFirstName')?.value.trim();
+        const lastName = document.getElementById('pLastName')?.value.trim() || '';
+        const companyName = document.getElementById('pCompanyName')?.value.trim() || '';
+        
+        if (!firstName && !companyName) {
+            toast('Please provide at least name or company', 'error');
+            return;
+        }
+
+        const data = {
+            firstName: firstName || '',
+            lastName: lastName || '',
+            fullName: [firstName, lastName].filter(Boolean).join(' '),
+            linkedinUrl: document.getElementById('pLinkedinUrl')?.value.trim() || '',
+            companyName: companyName,
+            jobTitle: document.getElementById('pJobTitle')?.value.trim() || '',
+            email: document.getElementById('pEmail')?.value.trim() || '',
+            website: document.getElementById('pWebsite')?.value.trim() || '',
+            industry: document.getElementById('pIndustry')?.value.trim() || '',
+            screenshots: addProspectScreenshots,
+            stage: 'NEW',
+            status: 'Active',
+            listIds: [],
+            tags: [],
+            createdAt: todayISO(),
+            updatedAt: todayISO(),
+            icpScore: 0,
+            decisionMakerScore: 0,
+            relevanceScore: 0,
+            confidenceScore: 0,
+            riskLevel: 'Unknown',
+            priority: 'LOW',
+            shouldContact: true,
+            location: document.getElementById('pLocation')?.value.trim() || '',
+            about: document.getElementById('pAbout')?.value.trim() || '',
+            skills: document.getElementById('pSkills')?.value.split(',').map(s=>s.trim()).filter(Boolean) || []
+        };
+
+        const dup = detectDuplicate(data);
+        if (dup) {
+            openDuplicateModal(dup, data, null);
+            return;
+        }
+
+        createProspect(data);
+        closeModal();
+        toast('Prospect saved successfully!', 'success');
+        renderView(currentView);
+    }
+
+    // ==================== ANALYZE FROM ADD MODAL ====================
+    async function analyzeFromAddModal() {
+        if (isAnalyzing) { toast('Analysis already running', 'warning'); return; }
+        
+        const firstName = document.getElementById('pFirstName')?.value.trim();
+        const linkedinUrl = document.getElementById('pLinkedinUrl')?.value.trim();
+        
+        if (!firstName && !linkedinUrl && addProspectScreenshots.length === 0) {
+            toast('Provide name, LinkedIn URL, or screenshots', 'error');
+            return;
+        }
+        
+        if (!appState.settings.apiKey) {
+            toast('Please configure your Groq API key in Settings', 'error');
+            return;
+        }
+
+        isAnalyzing = true;
+        const btn = document.getElementById('analyzeFromModalBtn');
+        if (btn) btn.disabled = true;
+
+        // Show progress modal
+        const overlayHtml = `<div class="modal-overlay"><div class="modal"><div class="modal-header"><h2>🔬 Analyzing Prospect</h2><button class="close-btn" onclick="closeModal()">×</button></div><div class="progress-steps" id="analysisSteps"></div><div id="analysisLog" class="text-sm"></div></div></div>`;
+        document.getElementById('modalContainer').innerHTML = overlayHtml;
+        
+        const stepsEl = document.getElementById('analysisSteps');
+        const logEl = document.getElementById('analysisLog');
+        const steps = ['📝 Preparing prospect...','🖼️ Reading screenshot...','🔍 Extracting profile...','🏢 Researching company...','📊 Analyzing business...','🎯 Checking ICP...','📈 Calculating decision-maker score...','💡 Finding opportunity...','⚡ Selecting service...','✉️ Generating outreach...','✅ Validating message...','💾 Saving CRM...'];
+        
+        function updateStep(index, status = 'active') {
+            if (!stepsEl) return;
+            stepsEl.innerHTML = steps.map((s, i) => `<div class="progress-step ${i < index ? 'done' : i === index ? 'active' : ''}"><span class="dot"></span><span class="text">${s}</span></div>`).join('');
+        }
+        function updateLog(msg) {
+            if (logEl) logEl.innerHTML += '<br>' + msg;
+        }
+
+        try {
+            updateStep(0);
+            const baseData = {
+                firstName: document.getElementById('pFirstName')?.value.trim() || '',
+                lastName: document.getElementById('pLastName')?.value.trim() || '',
+                fullName: [document.getElementById('pFirstName')?.value.trim(), document.getElementById('pLastName')?.value.trim()].filter(Boolean).join(' '),
+                linkedinUrl: document.getElementById('pLinkedinUrl')?.value.trim() || '',
+                companyName: document.getElementById('pCompanyName')?.value.trim() || '',
+                jobTitle: document.getElementById('pJobTitle')?.value.trim() || '',
+                email: document.getElementById('pEmail')?.value.trim() || '',
+                website: document.getElementById('pWebsite')?.value.trim() || '',
+                industry: document.getElementById('pIndustry')?.value.trim() || '',
+                location: document.getElementById('pLocation')?.value.trim() || '',
+                about: document.getElementById('pAbout')?.value.trim() || '',
+                skills: document.getElementById('pSkills')?.value.split(',').map(s=>s.trim()).filter(Boolean) || [],
+                screenshots: addProspectScreenshots,
+            };
+
+            const result = await performFullAnalysis(baseData, updateStep, updateLog);
+            if (result && result.prospect) {
+                createProspect(result.prospect);
+                toast('Analysis complete!', 'success');
+                closeModal();
+                renderView(currentView);
+            }
+        } catch(e) {
+            toast('Analysis failed: ' + e.message, 'error');
+            closeModal();
+        } finally {
+            isAnalyzing = false;
+            if (btn) btn.disabled = false;
+        }
+    }
+
+    // ==================== PERFORM FULL ANALYSIS ====================
+    async function performFullAnalysis(input, updateStep, updateLog) {
+        let extractedProfile = null;
+        if (input.screenshots && input.screenshots.length > 0) {
+            if (updateStep) updateStep(1, 'active');
+            if (updateLog) updateLog('Analyzing screenshots...');
+            try {
+                extractedProfile = await extractFromScreenshots(input.screenshots);
+                if (updateLog) updateLog('Profile extracted.');
+            } catch(e) {
+                if (updateLog) updateLog('Screenshot extraction failed: ' + e.message);
+            }
+            if (updateStep) updateStep(2, 'done');
+        } else {
+            if (updateStep) updateStep(1, 'done');
+            if (updateStep) updateStep(2, 'done');
+        }
+        const mergedInput = { ...input };
+        if (extractedProfile) {
+            if (extractedProfile.fullName && !mergedInput.fullName) mergedInput.fullName = extractedProfile.fullName;
+            if (extractedProfile.firstName && !mergedInput.firstName) mergedInput.firstName = extractedProfile.firstName;
+            if (extractedProfile.lastName && !mergedInput.lastName) mergedInput.lastName = extractedProfile.lastName;
+            if (extractedProfile.jobTitle && !mergedInput.jobTitle) mergedInput.jobTitle = extractedProfile.jobTitle;
+            if (extractedProfile.companyName && !mergedInput.companyName) mergedInput.companyName = extractedProfile.companyName;
+            if (extractedProfile.industry && !mergedInput.industry) mergedInput.industry = extractedProfile.industry;
+            if (extractedProfile.location && !mergedInput.location) mergedInput.location = extractedProfile.location;
+            if (extractedProfile.linkedinUrl && !mergedInput.linkedinUrl) mergedInput.linkedinUrl = extractedProfile.linkedinUrl;
+        }
+        let researchResult = null;
+        if (appState.settings.liveResearch && (mergedInput.website || mergedInput.companyName)) {
+            if (updateStep) updateStep(3, 'active');
+            if (updateLog) updateLog('Researching company...');
+            try { 
+                researchResult = await callGroqResearch(mergedInput.website || mergedInput.companyName); 
+                if (researchResult && !researchResult.error) {
+                    if (updateLog) updateLog('Company researched.');
+                } else {
+                    if (updateLog) updateLog('Live research unavailable: ' + (researchResult?.error || 'unknown error'));
+                }
+            } catch(e) { 
+                if (updateLog) updateLog('Live research failed: ' + e.message);
+            }
+        } else if (updateStep) updateStep(3, 'done');
+        if (updateStep) updateStep(4, 'active');
+        if (updateLog) updateLog('Generating prospect intelligence...');
+        const fullResult = await generateFullAnalysis(mergedInput, researchResult);
+        if (updateStep) updateStep(11, 'done');
+        return fullResult;
+    }
+
+    // ==================== GROQ API CALLS ====================
+    async function callGroqChat(system, user, model, opts = {}) {
+        if (!appState.settings.apiKey) throw new Error('API key not configured');
+        appState.apiUsage.requests++;
+        appState.apiUsage.lastRequest = todayISO();
+        appState.apiUsage.currentModel = model;
+        const url = 'https://api.groq.com/openai/v1/chat/completions';
+        const body = {
+            model: model,
+            messages: [{ role: 'system', content: system }, { role: 'user', content: user }],
+            temperature: opts.temperature ?? 0.3,
+            max_tokens: opts.max_tokens ?? 2000,
+            ...(opts.response_format ? { response_format: opts.response_format } : {})
+        };
+        let retries = 0;
+        while (retries <= 2) {
+            try {
+                const res = await fetch(url, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + appState.settings.apiKey },
+                    body: JSON.stringify(body)
+                });
+                if (!res.ok) {
+                    const errorText = await res.text();
+                    appState.apiUsage.failed++;
+                    appState.apiUsage.lastError = `HTTP ${res.status}: ${errorText}`;
+                    if (res.status === 429) {
+                        appState.apiUsage.rateLimited++;
+                        const retryAfter = res.headers.get('retry-after');
+                        const wait = retryAfter ? parseInt(retryAfter) * 1000 : 2000 * (retries + 1);
+                        if (retries < 2) {
+                            await new Promise(r => setTimeout(r, wait));
+                            retries++;
+                            continue;
+                        }
+                        throw new Error('Groq rate limit reached. Please wait and try again.');
+                    }
+                    if (res.status === 401) throw new Error('Invalid API key (401). Check settings.');
+                    if (res.status === 403) throw new Error('Access denied (403).');
+                    if (res.status === 404) throw new Error('Model or endpoint not found (404).');
+                    if (res.status === 408) throw new Error('Request timed out (408).');
+                    if (res.status === 500 || res.status === 502 || res.status === 503) throw new Error(`Groq server error (${res.status}).`);
+                    throw new Error('Groq API error: ' + res.status);
+                }
+                const data = await res.json();
+                const content = data.choices?.[0]?.message?.content || '';
+                if (!content) { appState.apiUsage.failed++; appState.apiUsage.lastError = 'Empty response'; throw new Error('Empty response from Groq'); }
+                appState.apiUsage.successful++;
+                appState.apiUsage.lastError = null;
+                saveStateDebounced();
+                return content;
+            } catch(e) {
+                if (retries >= 2) { saveStateDebounced(); throw e; }
+                retries++;
+                await new Promise(r => setTimeout(r, 1000 * retries));
+            }
+        }
+    }
+
+    async function callGroqResponses(text, images) {
+        if (!appState.settings.apiKey) throw new Error('API key not configured');
+        appState.apiUsage.requests++;
+        appState.apiUsage.lastRequest = todayISO();
+        appState.apiUsage.currentModel = appState.settings.visionModel;
+        const url = 'https://api.groq.com/openai/v1/responses';
+        const content = [{ type: 'input_text', text }];
+        images.forEach(img => content.push({ type: 'input_image', image_url: img.image_url }));
+        const body = {
+            model: appState.settings.visionModel,
+            input: [{ role: 'user', content }]
+        };
+        let retries = 0;
+        while (retries <= 2) {
+            try {
+                const res = await fetch(url, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + appState.settings.apiKey },
+                    body: JSON.stringify(body)
+                });
+                if (!res.ok) {
+                    const errorText = await res.text();
+                    appState.apiUsage.failed++;
+                    appState.apiUsage.lastError = `Vision HTTP ${res.status}`;
+                    if (res.status === 429) {
+                        appState.apiUsage.rateLimited++;
+                        const retryAfter = res.headers.get('retry-after');
+                        const wait = retryAfter ? parseInt(retryAfter) * 1000 : 2000 * (retries + 1);
+                        if (retries < 2) { await new Promise(r => setTimeout(r, wait)); retries++; continue; }
+                        throw new Error('Groq rate limit reached.');
+                    }
+                    throw new Error('Vision API error: ' + res.status);
+                }
+                const data = await res.json();
+                const textResult = data.output_text || data.output?.[0]?.content?.[0]?.text || '';
+                if (!textResult) { appState.apiUsage.failed++; appState.apiUsage.lastError = 'Empty vision response'; throw new Error('Empty vision response'); }
+                appState.apiUsage.successful++;
+                appState.apiUsage.lastError = null;
+                saveStateDebounced();
+                return textResult;
+            } catch(e) { if (retries >= 2) { saveStateDebounced(); throw e; } retries++; await new Promise(r => setTimeout(r, 1000 * retries)); }
+        }
+    }
+
+    async function callGroqResearch(query) {
+        if (!appState.settings.apiKey) throw new Error('API key not configured');
+        appState.apiUsage.requests++;
+        appState.apiUsage.lastRequest = todayISO();
+        appState.apiUsage.currentModel = appState.settings.researchModel;
+        const system = 'You are a public company research assistant. You do NOT have live web access. Only provide information explicitly provided by user or known public facts. If unsure, say "Not verified." Never fabricate. Return JSON with fields: summary, businessModel, painSignals, opportunitySignals, sources (array of {title,url,type}), lastResearched.';
+        const url = 'https://api.groq.com/openai/v1/chat/completions';
+        const body = { model: appState.settings.researchModel, messages: [{ role: 'system', content: system }, { role: 'user', content: 'Research this company: ' + query }], temperature: 0.2, max_tokens: 2000, response_format: { type: 'json_object' } };
+        try {
+            const res = await fetch(url, { method: 'POST', headers: { 'Content-Type':'application/json','Authorization':'Bearer '+appState.settings.apiKey }, body: JSON.stringify(body) });
+            if (!res.ok) { appState.apiUsage.failed++; appState.apiUsage.lastError = `Research HTTP ${res.status}`; if (res.status===429) throw new Error('Rate limit'); throw new Error('Research failed: '+res.status); }
+            const data = await res.json();
+            const content = data.choices?.[0]?.message?.content || '';
+            appState.apiUsage.successful++; saveStateDebounced();
+            return parseAIResponse(content);
+        } catch(e) { appState.apiUsage.failed++; saveStateDebounced(); throw e; }
+    }
+
+    function parseAIResponse(content) {
+        try {
+            let cleaned = content.trim();
+            if (cleaned.startsWith('```')) cleaned = cleaned.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/,'');
+            return JSON.parse(cleaned);
+        } catch(e) {
+            const match = content.match(/\{[\s\S]*\}/);
+            if (match) { try { return JSON.parse(match[0]); } catch(e2) {} }
+            throw new Error('AI response was not valid JSON');
+        }
+    }
+
+    // ==================== EXTRACT FROM SCREENSHOTS ====================
+    async function extractFromScreenshots(screenshots) {
+        if (!appState.settings.apiKey) throw new Error('API key missing');
+        const prompt = `You are an expert at extracting visible text and details from LinkedIn profile screenshots. Extract only what is visibly present. Return a valid JSON object with these fields: fullName, firstName, lastName, headline, jobTitle, companyName, location, about, currentPosition, previousPosition, visibleSkills, visibleActivity, visiblePost, visibleCompanyDetails, visibleWebsite, visibleLinkedInUrl. If a field is not visible or not available, set it to null or "Not available from screenshot." Do not invent information. Respond with JSON only.`;
+        const images = screenshots.map(s => ({ type: 'input_image', image_url: s.dataUrl }));
+        const response = await callGroqResponses(prompt, images);
+        return parseAIResponse(response);
+    }
+
+    // ==================== GENERATE FULL ANALYSIS ====================
+    async function generateFullAnalysis(input, researchResult) {
+        const system = `You are an evidence-first B2B prospect intelligence assistant.
+Your job is not to maximize outreach volume. Your job is to identify whether a prospect is genuinely relevant, understand the person's role, understand the company, identify a credible business opportunity, match one relevant service, and draft highly personalized human outreach.
+You must distinguish verified facts from inference. Never invent information. Never fabricate pain points. Never claim a technology is being used unless verified. Never claim GHL usage unless verified. Never dump services. Choose one strongest angle. If evidence is insufficient, say so. Quality is more important than volume.
+Respond with valid JSON only. Include the following structure:
+{
+  "prospect": {
+    "firstName": "", "lastName": "", "fullName": "", "linkedinUrl": "", "email": "", "phone": "", "location": "",
+    "jobTitle": "", "seniority": "", "companyId": "", "companyName": "", "industry": "", "companyWebsite": "", "companyLinkedin": "",
+    "companySize": "", "businessModel": "", "services": "", "targetAudience": "",
+    "icpScore": 0, "decisionMakerScore": 0, "relevanceScore": 0, "confidenceScore": 0, "riskLevel": "", "priority": "", "shouldContact": true,
+    "prospectSummary": "", "companySummary": "", "businessModelSummary": "", "painSignals": [], "opportunitySignals": [], "websiteObservations": "",
+    "crmObservations": "", "automationObservations": "", "growthSignals": "", "evidence": [], "guesses": [], "notVerified": [], "sources": [],
+    "recommendedService": "", "serviceReason": "", "outreachAngle": "", "miniAudit": "",
+    "connectionRequest": "", "initialMessage": "", "followUp1": "", "followUp2": "", "replyQuestion": "", "objectionResponse": "",
+    "nextAction": "", "nextActionDate": null, "tags": []
+  },
+  "company": {},
+  "qualification": {},
+  "research": {},
+  "evidence": [],
+  "guesses": [],
+  "notVerified": [],
+  "opportunity": {},
+  "serviceMatch": {},
+  "outreach": {},
+  "nextAction": {}
+}`;
+        const userContent = `Here is the prospect information:
+${JSON.stringify(input, null, 2)}
+${researchResult ? '\nLive Research Result:\n' + JSON.stringify(researchResult, null, 2) : ''}
+User ICP settings: ${JSON.stringify(appState.settings.icp, null, 2)}
+Business profile: EliteGrowth Hub, Founder & Growth Systems Partner Nadir Fayyaz. Services include Brand Collaboration, GHL, AI Automation, Business Development, Lead Generation, CRM, Marketing Automation, Workflow Automation, Lead Nurturing, Growth Systems, Funnels, Booking Systems, Follow-up Systems, Website Services, Shopify, WordPress, API Integrations, Business Process Automation.
+Analyze thoroughly. Ensure all fields are populated. For evidence label each finding with [EVIDENCE], [GUESS], or [NOT VERIFIED]. Generate outreach that is personalized, specific, human, and no service dump. Connection request max 280 chars. Do not invent facts.`;
+        const response = await callGroqChat(system, userContent, appState.settings.textModel, { temperature: 0.3, max_tokens: 4000, response_format: { type: 'json_object' } });
+        let parsed = parseAIResponse(response);
+        if (!parsed || !parsed.prospect) throw new Error('AI response missing prospect data');
+        const p = parsed.prospect;
+        p.id = createId();
+        p.createdAt = todayISO();
+        p.updatedAt = todayISO();
+        p.listIds = [];
+        p.tags = Array.isArray(p.tags) ? p.tags : [];
+        p.stage = 'RESEARCH COMPLETE';
+        p.status = 'Active';
+        p.screenshots = input.screenshots || [];
+        p.nextActionDate = p.nextActionDate || null;
+        p.lastTouchDate = null;
+        p.connectionDate = null; p.acceptedDate = null; p.replyDate = null;
+        p.auditStatus = null; p.callStatus = null; p.proposalStatus = null; p.outcome = null; p.lostReason = null;
+        if (!p.icpScore) p.icpScore = 0;
+        if (!p.decisionMakerScore) p.decisionMakerScore = 0;
+        if (!p.relevanceScore) p.relevanceScore = 0;
+        if (!p.confidenceScore) p.confidenceScore = 0;
+        if (!p.priority) p.priority = p.icpScore >= 70 ? 'HIGH' : p.icpScore >= 40 ? 'MEDIUM' : 'LOW';
+        if (p.shouldContact === false && p.stage !== 'DO NOT CONTACT') p.stage = 'DO NOT CONTACT';
+        return parsed;
     }
 
     // ==================== PROSPECT CRUD ====================
@@ -1077,7 +1350,7 @@
         renderView(currentView);
     }
 
-    // ==================== PROSPECT VIEW/EDIT ====================
+    // ==================== VIEW/EDIT PROSPECT ====================
     function viewProspect(id) {
         const p = appState.prospects.find(x => x.id === id);
         if (!p) { toast('Prospect not found', 'error'); return; }
@@ -1136,6 +1409,8 @@
             ${p.recommendedService ? `<p><strong>Recommended Service:</strong> ${escapeHtml(p.recommendedService)}</p>` : ''}
             ${p.outreachAngle ? `<p><strong>Outreach Angle:</strong> ${escapeHtml(p.outreachAngle)}</p>` : ''}
             ${p.miniAudit ? `<p><strong>Mini Audit:</strong> ${escapeHtml(p.miniAudit)}</p>` : ''}
+            ${p.connectionRequest ? `<p><strong>Connection Request:</strong> ${escapeHtml(p.connectionRequest)}</p>` : ''}
+            ${p.initialMessage ? `<p><strong>Initial Message:</strong> ${escapeHtml(p.initialMessage)}</p>` : ''}
             <div class="flex mt-10">
                 <button class="btn primary" onclick="editProspect('${p.id}')">Edit</button>
                 <button class="btn gold" onclick="analyzeProspectById('${p.id}')">Analyze</button>
@@ -1281,7 +1556,6 @@
         const btn = event?.target; if (btn) btn.disabled = true;
         try {
             toast('Analyzing prospect...', 'info');
-            // Build input from prospect data
             const input = {
                 firstName: p.firstName,
                 lastName: p.lastName,
@@ -1295,10 +1569,8 @@
                 location: p.location,
                 about: p.about,
                 skills: p.skills,
-                experience: p.experience,
                 screenshots: p.screenshots || []
             };
-            
             const result = await performFullAnalysis(input, null, null);
             if (result && result.prospect) {
                 const updates = { ...result.prospect, id: p.id, createdAt: p.createdAt, updatedAt: todayISO() };
@@ -1828,255 +2100,6 @@
         saveState();
         renderView(currentView);
         toast('All data cleared');
-    }
-
-    // ==================== FULL ANALYSIS FLOW ====================
-    async function performFullAnalysis(input, updateStep, updateLog) {
-        let extractedProfile = null;
-        if (input.screenshots && input.screenshots.length > 0) {
-            if (updateStep) updateStep(1, 'active');
-            if (updateLog) updateLog('Analyzing screenshots...');
-            try {
-                extractedProfile = await extractFromScreenshots(input.screenshots);
-                if (updateLog) updateLog('Profile extracted.');
-            } catch(e) {
-                if (updateLog) updateLog('Screenshot extraction failed: ' + e.message);
-            }
-            if (updateStep) updateStep(2, 'done');
-        } else {
-            if (updateStep) updateStep(1, 'done');
-            if (updateStep) updateStep(2, 'done');
-        }
-        const mergedInput = { ...input };
-        if (extractedProfile) {
-            if (extractedProfile.fullName && !mergedInput.fullName) mergedInput.fullName = extractedProfile.fullName;
-            if (extractedProfile.firstName && !mergedInput.firstName) mergedInput.firstName = extractedProfile.firstName;
-            if (extractedProfile.lastName && !mergedInput.lastName) mergedInput.lastName = extractedProfile.lastName;
-            if (extractedProfile.jobTitle && !mergedInput.jobTitle) mergedInput.jobTitle = extractedProfile.jobTitle;
-            if (extractedProfile.companyName && !mergedInput.companyName) mergedInput.companyName = extractedProfile.companyName;
-            if (extractedProfile.industry && !mergedInput.industry) mergedInput.industry = extractedProfile.industry;
-            if (extractedProfile.location && !mergedInput.location) mergedInput.location = extractedProfile.location;
-            if (extractedProfile.linkedinUrl && !mergedInput.linkedinUrl) mergedInput.linkedinUrl = extractedProfile.linkedinUrl;
-        }
-        let researchResult = null;
-        if (appState.settings.liveResearch && (mergedInput.website || mergedInput.companyName)) {
-            if (updateStep) updateStep(3, 'active');
-            if (updateLog) updateLog('Researching company...');
-            try { 
-                researchResult = await callGroqResearch(mergedInput.website || mergedInput.companyName); 
-                if (researchResult && !researchResult.error) {
-                    if (updateLog) updateLog('Company researched.');
-                } else {
-                    if (updateLog) updateLog('Live research unavailable: ' + (researchResult?.error || 'unknown error'));
-                }
-            } catch(e) { 
-                if (updateLog) updateLog('Live research failed: ' + e.message);
-            }
-        } else if (updateStep) updateStep(3, 'done');
-        if (updateStep) updateStep(4, 'active');
-        if (updateLog) updateLog('Generating prospect intelligence...');
-        const fullResult = await generateFullAnalysis(mergedInput, researchResult);
-        if (updateStep) updateStep(11, 'done');
-        return fullResult;
-    }
-
-    async function extractFromScreenshots(screenshots) {
-        if (!appState.settings.apiKey) throw new Error('API key missing');
-        const prompt = `You are an expert at extracting visible text and details from LinkedIn profile screenshots. Extract only what is visibly present. Return a valid JSON object with these fields: fullName, firstName, lastName, headline, jobTitle, companyName, location, about, currentPosition, previousPosition, visibleSkills, visibleActivity, visiblePost, visibleCompanyDetails, visibleWebsite, visibleLinkedInUrl. If a field is not visible or not available, set it to null or "Not available from screenshot." Do not invent information. Respond with JSON only.`;
-        const images = screenshots.map(s => ({ type: 'input_image', image_url: s.dataUrl }));
-        const response = await callGroqResponses(prompt, images);
-        return parseAIResponse(response);
-    }
-
-    async function generateFullAnalysis(input, researchResult) {
-        const system = `You are an evidence-first B2B prospect intelligence assistant.
-Your job is not to maximize outreach volume. Your job is to identify whether a prospect is genuinely relevant, understand the person's role, understand the company, identify a credible business opportunity, match one relevant service, and draft highly personalized human outreach.
-You must distinguish verified facts from inference. Never invent information. Never fabricate pain points. Never claim a technology is being used unless verified. Never claim GHL usage unless verified. Never dump services. Choose one strongest angle. If evidence is insufficient, say so. Quality is more important than volume.
-Respond with valid JSON only. Include the following structure:
-{
-  "prospect": {
-    "firstName": "", "lastName": "", "fullName": "", "linkedinUrl": "", "email": "", "phone": "", "location": "",
-    "jobTitle": "", "seniority": "", "companyId": "", "companyName": "", "industry": "", "companyWebsite": "", "companyLinkedin": "",
-    "companySize": "", "businessModel": "", "services": "", "targetAudience": "",
-    "icpScore": 0, "decisionMakerScore": 0, "relevanceScore": 0, "confidenceScore": 0, "riskLevel": "", "priority": "", "shouldContact": true,
-    "prospectSummary": "", "companySummary": "", "businessModelSummary": "", "painSignals": [], "opportunitySignals": [], "websiteObservations": "",
-    "crmObservations": "", "automationObservations": "", "growthSignals": "", "evidence": [], "guesses": [], "notVerified": [], "sources": [],
-    "recommendedService": "", "serviceReason": "", "outreachAngle": "", "miniAudit": "",
-    "connectionRequest": "", "initialMessage": "", "followUp1": "", "followUp2": "", "replyQuestion": "", "objectionResponse": "",
-    "nextAction": "", "nextActionDate": null, "tags": []
-  },
-  "company": {},
-  "qualification": {},
-  "research": {},
-  "evidence": [],
-  "guesses": [],
-  "notVerified": [],
-  "opportunity": {},
-  "serviceMatch": {},
-  "outreach": {},
-  "nextAction": {}
-}`;
-        const userContent = `Here is the prospect information:
-${JSON.stringify(input, null, 2)}
-${researchResult ? '\nLive Research Result:\n' + JSON.stringify(researchResult, null, 2) : ''}
-User ICP settings: ${JSON.stringify(appState.settings.icp, null, 2)}
-Business profile: EliteGrowth Hub, Founder & Growth Systems Partner Nadir Fayyaz. Services include Brand Collaboration, GHL, AI Automation, Business Development, Lead Generation, CRM, Marketing Automation, Workflow Automation, Lead Nurturing, Growth Systems, Funnels, Booking Systems, Follow-up Systems, Website Services, Shopify, WordPress, API Integrations, Business Process Automation.
-Analyze thoroughly. Ensure all fields are populated. For evidence label each finding with [EVIDENCE], [GUESS], or [NOT VERIFIED]. Generate outreach that is personalized, specific, human, and no service dump. Connection request max 280 chars. Do not invent facts.`;
-        const response = await callGroqChat(system, userContent, appState.settings.textModel, { temperature: 0.3, max_tokens: 4000, response_format: { type: 'json_object' } });
-        let parsed = parseAIResponse(response);
-        if (!parsed || !parsed.prospect) throw new Error('AI response missing prospect data');
-        const p = parsed.prospect;
-        p.id = createId();
-        p.createdAt = todayISO();
-        p.updatedAt = todayISO();
-        p.listIds = [];
-        p.tags = Array.isArray(p.tags) ? p.tags : [];
-        p.stage = 'RESEARCH COMPLETE';
-        p.status = 'Active';
-        p.screenshots = input.screenshots || [];
-        p.nextActionDate = p.nextActionDate || null;
-        p.lastTouchDate = null;
-        p.connectionDate = null; p.acceptedDate = null; p.replyDate = null;
-        p.auditStatus = null; p.callStatus = null; p.proposalStatus = null; p.outcome = null; p.lostReason = null;
-        if (!p.icpScore) p.icpScore = 0;
-        if (!p.decisionMakerScore) p.decisionMakerScore = 0;
-        if (!p.relevanceScore) p.relevanceScore = 0;
-        if (!p.confidenceScore) p.confidenceScore = 0;
-        if (!p.priority) p.priority = p.icpScore >= 70 ? 'HIGH' : p.icpScore >= 40 ? 'MEDIUM' : 'LOW';
-        if (p.shouldContact === false && p.stage !== 'DO NOT CONTACT') p.stage = 'DO NOT CONTACT';
-        return parsed;
-    }
-
-    async function callGroqChat(system, user, model, opts = {}) {
-        if (!appState.settings.apiKey) throw new Error('API key not configured');
-        appState.apiUsage.requests++;
-        appState.apiUsage.lastRequest = todayISO();
-        appState.apiUsage.currentModel = model;
-        const url = 'https://api.groq.com/openai/v1/chat/completions';
-        const body = {
-            model: model,
-            messages: [{ role: 'system', content: system }, { role: 'user', content: user }],
-            temperature: opts.temperature ?? 0.3,
-            max_tokens: opts.max_tokens ?? 2000,
-            ...(opts.response_format ? { response_format: opts.response_format } : {})
-        };
-        let retries = 0;
-        while (retries <= 2) {
-            try {
-                const res = await fetch(url, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + appState.settings.apiKey },
-                    body: JSON.stringify(body)
-                });
-                if (!res.ok) {
-                    const errorText = await res.text();
-                    appState.apiUsage.failed++;
-                    appState.apiUsage.lastError = `HTTP ${res.status}: ${errorText}`;
-                    if (res.status === 429) {
-                        appState.apiUsage.rateLimited++;
-                        const retryAfter = res.headers.get('retry-after');
-                        const wait = retryAfter ? parseInt(retryAfter) * 1000 : 2000 * (retries + 1);
-                        if (retries < 2) {
-                            await new Promise(r => setTimeout(r, wait));
-                            retries++;
-                            continue;
-                        }
-                        throw new Error('Groq rate limit reached. Please wait and try again.');
-                    }
-                    if (res.status === 401) throw new Error('Invalid API key (401). Check settings.');
-                    if (res.status === 403) throw new Error('Access denied (403).');
-                    if (res.status === 404) throw new Error('Model or endpoint not found (404).');
-                    if (res.status === 408) throw new Error('Request timed out (408).');
-                    if (res.status === 500 || res.status === 502 || res.status === 503) throw new Error(`Groq server error (${res.status}).`);
-                    throw new Error('Groq API error: ' + res.status);
-                }
-                const data = await res.json();
-                const content = data.choices?.[0]?.message?.content || '';
-                if (!content) { appState.apiUsage.failed++; appState.apiUsage.lastError = 'Empty response'; throw new Error('Empty response from Groq'); }
-                appState.apiUsage.successful++;
-                appState.apiUsage.lastError = null;
-                saveStateDebounced();
-                return content;
-            } catch(e) {
-                if (retries >= 2) { saveStateDebounced(); throw e; }
-                retries++;
-                await new Promise(r => setTimeout(r, 1000 * retries));
-            }
-        }
-    }
-
-    async function callGroqResponses(text, images) {
-        if (!appState.settings.apiKey) throw new Error('API key not configured');
-        appState.apiUsage.requests++;
-        appState.apiUsage.lastRequest = todayISO();
-        appState.apiUsage.currentModel = appState.settings.visionModel;
-        const url = 'https://api.groq.com/openai/v1/responses';
-        const content = [{ type: 'input_text', text }];
-        images.forEach(img => content.push({ type: 'input_image', image_url: img.image_url }));
-        const body = {
-            model: appState.settings.visionModel,
-            input: [{ role: 'user', content }]
-        };
-        let retries = 0;
-        while (retries <= 2) {
-            try {
-                const res = await fetch(url, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + appState.settings.apiKey },
-                    body: JSON.stringify(body)
-                });
-                if (!res.ok) {
-                    const errorText = await res.text();
-                    appState.apiUsage.failed++;
-                    appState.apiUsage.lastError = `Vision HTTP ${res.status}`;
-                    if (res.status === 429) {
-                        appState.apiUsage.rateLimited++;
-                        const retryAfter = res.headers.get('retry-after');
-                        const wait = retryAfter ? parseInt(retryAfter) * 1000 : 2000 * (retries + 1);
-                        if (retries < 2) { await new Promise(r => setTimeout(r, wait)); retries++; continue; }
-                        throw new Error('Groq rate limit reached.');
-                    }
-                    throw new Error('Vision API error: ' + res.status);
-                }
-                const data = await res.json();
-                const textResult = data.output_text || data.output?.[0]?.content?.[0]?.text || '';
-                if (!textResult) { appState.apiUsage.failed++; appState.apiUsage.lastError = 'Empty vision response'; throw new Error('Empty vision response'); }
-                appState.apiUsage.successful++;
-                appState.apiUsage.lastError = null;
-                saveStateDebounced();
-                return textResult;
-            } catch(e) { if (retries >= 2) { saveStateDebounced(); throw e; } retries++; await new Promise(r => setTimeout(r, 1000 * retries)); }
-        }
-    }
-
-    async function callGroqResearch(query) {
-        if (!appState.settings.apiKey) throw new Error('API key not configured');
-        appState.apiUsage.requests++;
-        appState.apiUsage.lastRequest = todayISO();
-        appState.apiUsage.currentModel = appState.settings.researchModel;
-        const system = 'You are a public company research assistant. You do NOT have live web access. Only provide information explicitly provided by user or known public facts. If unsure, say "Not verified." Never fabricate. Return JSON with fields: summary, businessModel, painSignals, opportunitySignals, sources (array of {title,url,type}), lastResearched.';
-        const url = 'https://api.groq.com/openai/v1/chat/completions';
-        const body = { model: appState.settings.researchModel, messages: [{ role: 'system', content: system }, { role: 'user', content: 'Research this company: ' + query }], temperature: 0.2, max_tokens: 2000, response_format: { type: 'json_object' } };
-        try {
-            const res = await fetch(url, { method: 'POST', headers: { 'Content-Type':'application/json','Authorization':'Bearer '+appState.settings.apiKey }, body: JSON.stringify(body) });
-            if (!res.ok) { appState.apiUsage.failed++; appState.apiUsage.lastError = `Research HTTP ${res.status}`; if (res.status===429) throw new Error('Rate limit'); throw new Error('Research failed: '+res.status); }
-            const data = await res.json();
-            const content = data.choices?.[0]?.message?.content || '';
-            appState.apiUsage.successful++; saveStateDebounced();
-            return parseAIResponse(content);
-        } catch(e) { appState.apiUsage.failed++; saveStateDebounced(); throw e; }
-    }
-
-    function parseAIResponse(content) {
-        try {
-            let cleaned = content.trim();
-            if (cleaned.startsWith('```')) cleaned = cleaned.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/,'');
-            return JSON.parse(cleaned);
-        } catch(e) {
-            const match = content.match(/\{[\s\S]*\}/);
-            if (match) { try { return JSON.parse(match[0]); } catch(e2) {} }
-            throw new Error('AI response was not valid JSON');
-        }
     }
 
     // ==================== INIT ====================
