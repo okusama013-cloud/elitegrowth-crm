@@ -1,6 +1,4 @@
 // netlify/functions/scrape-linkedin.js
-// LinkedIn Profile Scraper — Multiple methods to extract data
-
 exports.handler = async (event) => {
     if (event.httpMethod !== 'POST') {
         return { statusCode: 405, body: 'Method Not Allowed' };
@@ -8,7 +6,6 @@ exports.handler = async (event) => {
 
     try {
         const { url } = JSON.parse(event.body);
-        
         if (!url || !url.includes('linkedin.com/in/')) {
             return {
                 statusCode: 400,
@@ -16,7 +13,6 @@ exports.handler = async (event) => {
             };
         }
 
-        // Extract username
         const username = url.match(/\/in\/([^\/?#]+)/)?.[1];
         if (!username) {
             return {
@@ -25,77 +21,54 @@ exports.handler = async (event) => {
             };
         }
 
-        // ============ METHOD 1: Try direct fetch ============
+        // Try multiple methods
         let html = await fetchWithHeaders(url);
         let data = null;
 
         if (html && !html.includes('login') && !html.includes('signin')) {
             data = extractData(html, url);
             if (data && data.fullName) {
-                return {
-                    statusCode: 200,
-                    body: JSON.stringify({ ...data, method: 'direct_fetch' })
-                };
+                return { statusCode: 200, body: JSON.stringify({ ...data, method: 'direct_fetch' }) };
             }
         }
 
-        // ============ METHOD 2: Try Google Cache ============
+        // Google Cache
         html = await fetchGoogleCache(url);
         if (html && !html.includes('login')) {
             data = extractData(html, url);
             if (data && data.fullName) {
-                return {
-                    statusCode: 200,
-                    body: JSON.stringify({ ...data, method: 'google_cache' })
-                };
+                return { statusCode: 200, body: JSON.stringify({ ...data, method: 'google_cache' }) };
             }
         }
 
-        // ============ METHOD 3: Try CORS Proxy ============
+        // CORS Proxy
         html = await fetchCorsProxy(url);
         if (html && !html.includes('login')) {
             data = extractData(html, url);
             if (data && data.fullName) {
-                return {
-                    statusCode: 200,
-                    body: JSON.stringify({ ...data, method: 'cors_proxy' })
-                };
+                return { statusCode: 200, body: JSON.stringify({ ...data, method: 'cors_proxy' }) };
             }
         }
 
-        // ============ METHOD 4: Try to extract from URL ============
+        // Fallback from URL
         const fallbackData = extractFromURL(username, url);
         if (fallbackData && fallbackData.fullName) {
             return {
                 statusCode: 200,
-                body: JSON.stringify({ 
-                    ...fallbackData, 
-                    method: 'url_fallback', 
-                    note: 'Partial data extracted from URL. Profile may be private.'
-                })
+                body: JSON.stringify({ ...fallbackData, method: 'url_fallback', note: 'Partial data extracted from URL' })
             };
         }
 
-        // ============ If all methods fail ============
         return {
             statusCode: 404,
-            body: JSON.stringify({ 
-                error: 'Could not fetch profile data. This profile may be completely private.',
-                note: 'Please use the screenshot upload method for this profile.',
-                username: username
-            })
+            body: JSON.stringify({ error: 'Could not fetch profile data. Please use screenshot upload method.', username: username })
         };
 
     } catch (error) {
-        console.error('Scraping error:', error);
-        return {
-            statusCode: 500,
-            body: JSON.stringify({ error: 'Scraping failed: ' + error.message })
-        };
+        return { statusCode: 500, body: JSON.stringify({ error: 'Scraping failed: ' + error.message }) };
     }
 };
 
-// ============ FETCH WITH HEADERS ============
 async function fetchWithHeaders(url) {
     const headers = {
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
@@ -110,58 +83,39 @@ async function fetchWithHeaders(url) {
         'Sec-Fetch-User': '?1',
         'Cache-Control': 'no-cache'
     };
-
     try {
         const res = await fetch(url, { headers });
-        if (res.ok) {
-            return await res.text();
-        }
+        if (res.ok) return await res.text();
     } catch(e) {}
     return null;
 }
 
-// ============ FETCH GOOGLE CACHE ============
 async function fetchGoogleCache(url) {
     try {
         const cacheUrl = `https://webcache.googleusercontent.com/search?q=cache:${encodeURIComponent(url)}`;
-        const res = await fetch(cacheUrl, {
-            headers: {
-                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
-            }
-        });
-        if (res.ok) {
-            return await res.text();
-        }
+        const res = await fetch(cacheUrl, { headers: { 'User-Agent': 'Mozilla/5.0' } });
+        if (res.ok) return await res.text();
     } catch(e) {}
     return null;
 }
 
-// ============ FETCH CORS PROXY ============
 async function fetchCorsProxy(url) {
     const proxies = [
         `https://api.allorigins.win/raw?url=${encodeURIComponent(url)}`,
         `https://corsproxy.io/?url=${encodeURIComponent(url)}`
     ];
-
     for (const proxyUrl of proxies) {
         try {
-            const res = await fetch(proxyUrl, {
-                headers: {
-                    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
-                }
-            });
+            const res = await fetch(proxyUrl, { headers: { 'User-Agent': 'Mozilla/5.0' } });
             if (res.ok) {
                 const text = await res.text();
-                if (!text.includes('login') && !text.includes('signin')) {
-                    return text;
-                }
+                if (!text.includes('login') && !text.includes('signin')) return text;
             }
         } catch(e) {}
     }
     return null;
 }
 
-// ============ EXTRACT FROM URL ============
 function extractFromURL(username, url) {
     const data = {
         fullName: '',
@@ -178,8 +132,6 @@ function extractFromURL(username, url) {
         scrapedAt: new Date().toISOString(),
         partialData: true
     };
-
-    // Parse name from URL
     const nameParts = username.split('-');
     if (nameParts.length >= 2) {
         const formattedName = nameParts.map(p => p.charAt(0).toUpperCase() + p.slice(1).replace(/[0-9]/g, '')).join(' ');
@@ -188,17 +140,13 @@ function extractFromURL(username, url) {
         data.firstName = parts[0] || '';
         data.lastName = parts.slice(1).join(' ') || '';
     }
-
-    // Try to extract company from URL
     const companyMatch = username.match(/(?:at|for|with)-([a-z]+)(?:-|$)/i);
     if (companyMatch) {
         data.company = companyMatch[1].charAt(0).toUpperCase() + companyMatch[1].slice(1);
     }
-
     return data;
 }
 
-// ============ EXTRACT DATA FROM HTML ============
 function extractData(html, url) {
     const data = {
         fullName: '',
@@ -216,7 +164,7 @@ function extractData(html, url) {
         scrapedAt: new Date().toISOString()
     };
 
-    // Extract from JSON-LD
+    // JSON-LD
     const jsonLdRegex = /<script type="application\/ld\+json">([\s\S]*?)<\/script>/g;
     let match;
     while ((match = jsonLdRegex.exec(html)) !== null) {
@@ -237,7 +185,7 @@ function extractData(html, url) {
         } catch(e) {}
     }
 
-    // Extract from Meta Tags
+    // Meta tags
     const metaTitle = html.match(/<meta property="og:title" content="([^"]*)"/);
     if (metaTitle && metaTitle[1]) {
         let name = metaTitle[1].replace(' | LinkedIn', '').replace(' - LinkedIn', '').trim();
@@ -262,7 +210,7 @@ function extractData(html, url) {
         }
     }
 
-    // Extract from HTML Elements
+    // HTML elements
     if (!data.fullName) {
         const h1Match = html.match(/<h1[^>]*>([^<]*)<\/h1>/);
         if (h1Match && h1Match[1].trim()) {
@@ -308,7 +256,7 @@ function extractData(html, url) {
         }
     }
 
-    // Extract About
+    // About
     if (!data.about) {
         const aboutMatch = html.match(/"summary":"([^"]+)"/);
         if (aboutMatch) {
@@ -316,7 +264,7 @@ function extractData(html, url) {
         }
     }
 
-    // Extract Experience
+    // Experience
     const expMatch = html.match(/"positions":\[([\s\S]*?)\]/);
     if (expMatch) {
         try {
@@ -333,7 +281,7 @@ function extractData(html, url) {
         } catch(e) {}
     }
 
-    // Extract Skills
+    // Skills
     const skillsMatch = html.match(/"skills":\[([\s\S]*?)\]/);
     if (skillsMatch) {
         try {
@@ -344,30 +292,10 @@ function extractData(html, url) {
         } catch(e) {}
     }
 
-    // Extract Education
-    const eduMatch = html.match(/"education":\[([\s\S]*?)\]/);
-    if (eduMatch) {
-        try {
-            const edu = JSON.parse('[' + eduMatch[1] + ']');
-            if (Array.isArray(edu)) {
-                data.education = edu.map(e => {
-                    const school = e.schoolName || '';
-                    const degree = e.degreeName || '';
-                    return `${degree} at ${school}`.trim();
-                }).filter(Boolean);
-            }
-        } catch(e) {}
-    }
-
     // Clean up
     Object.keys(data).forEach(key => {
         if (typeof data[key] === 'string') {
-            data[key] = data[key]
-                .replace(/\\/g, '')
-                .replace(/"/g, '')
-                .replace(/&quot;/g, '"')
-                .replace(/&amp;/g, '&')
-                .trim();
+            data[key] = data[key].replace(/\\/g, '').replace(/"/g, '').trim();
         }
         if (Array.isArray(data[key])) {
             data[key] = data[key].filter(Boolean);
