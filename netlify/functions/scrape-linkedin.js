@@ -1,8 +1,7 @@
 // netlify/functions/scrape-linkedin.js
-// NO node-fetch required — uses native fetch
+// LinkedIn Profile Scraper — Multiple methods to extract data
 
 exports.handler = async (event) => {
-    // Allow only POST
     if (event.httpMethod !== 'POST') {
         return { statusCode: 405, body: 'Method Not Allowed' };
     }
@@ -17,7 +16,7 @@ exports.handler = async (event) => {
             };
         }
 
-        // Extract username from URL
+        // Extract username
         const username = url.match(/\/in\/([^\/?#]+)/)?.[1];
         if (!username) {
             return {
@@ -217,7 +216,7 @@ function extractData(html, url) {
         scrapedAt: new Date().toISOString()
     };
 
-    // ============ Extract from JSON-LD ============
+    // Extract from JSON-LD
     const jsonLdRegex = /<script type="application\/ld\+json">([\s\S]*?)<\/script>/g;
     let match;
     while ((match = jsonLdRegex.exec(html)) !== null) {
@@ -238,7 +237,7 @@ function extractData(html, url) {
         } catch(e) {}
     }
 
-    // ============ Extract from Meta Tags ============
+    // Extract from Meta Tags
     const metaTitle = html.match(/<meta property="og:title" content="([^"]*)"/);
     if (metaTitle && metaTitle[1]) {
         let name = metaTitle[1].replace(' | LinkedIn', '').replace(' - LinkedIn', '').trim();
@@ -263,7 +262,7 @@ function extractData(html, url) {
         }
     }
 
-    // ============ Extract from HTML Elements ============
+    // Extract from HTML Elements
     if (!data.fullName) {
         const h1Match = html.match(/<h1[^>]*>([^<]*)<\/h1>/);
         if (h1Match && h1Match[1].trim()) {
@@ -309,7 +308,7 @@ function extractData(html, url) {
         }
     }
 
-    // ============ Extract About ============
+    // Extract About
     if (!data.about) {
         const aboutMatch = html.match(/"summary":"([^"]+)"/);
         if (aboutMatch) {
@@ -317,7 +316,7 @@ function extractData(html, url) {
         }
     }
 
-    // ============ Extract Experience ============
+    // Extract Experience
     const expMatch = html.match(/"positions":\[([\s\S]*?)\]/);
     if (expMatch) {
         try {
@@ -334,7 +333,7 @@ function extractData(html, url) {
         } catch(e) {}
     }
 
-    // ============ Extract Skills ============
+    // Extract Skills
     const skillsMatch = html.match(/"skills":\[([\s\S]*?)\]/);
     if (skillsMatch) {
         try {
@@ -345,7 +344,7 @@ function extractData(html, url) {
         } catch(e) {}
     }
 
-    // ============ Extract Education ============
+    // Extract Education
     const eduMatch = html.match(/"education":\[([\s\S]*?)\]/);
     if (eduMatch) {
         try {
@@ -360,7 +359,7 @@ function extractData(html, url) {
         } catch(e) {}
     }
 
-    // ============ Clean up ============
+    // Clean up
     Object.keys(data).forEach(key => {
         if (typeof data[key] === 'string') {
             data[key] = data[key]
